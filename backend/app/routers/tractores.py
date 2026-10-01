@@ -524,12 +524,11 @@ def _ultima(historial: list[dict], accion: str) -> int | None:
     return next((i for i in range(len(historial) - 1, -1, -1) if historial[i].get("accion") == accion), None)
 
 
-@router.post("/registros/{registro_id}/revisar", response_model=RegistroOut)
-def revisar_registro(registro_id: int, body: RevisionIn, db: Session = Depends(get_db),
-                     user: Usuario = Depends(requiere("revisar_actividades"))):
-    """Revisa (aprueba) las horas de una actividad FINALIZADA. Se pueden
-    corregir la fecha/hora de inicio y de fin; se recalculan los tiempos, la
-    actividad queda REVISADA y BLOQUEADA, y se registra quien y que cambio."""
+def _revisar(db: Session, registro_id: int, inicio: datetime | None, fin: datetime | None,
+             user: Usuario) -> Registro:
+    """Revisa (aprueba) las horas de una actividad FINALIZADA: corrige inicio y
+    fin si vienen, recalcula los tiempos, la deja REVISADA y BLOQUEADA y guarda
+    quien y que cambio. No hace commit. Lanza HTTPException si no se puede."""
     r = db.query(Registro).filter(Registro.id == registro_id).with_for_update().first()
     if not r:
         raise HTTPException(404, "Registro no encontrado")
@@ -544,7 +543,7 @@ def revisar_registro(registro_id: int, body: RevisionIn, db: Session = Depends(g
     cambios: dict = {}
     antes = {"inicio": historial[i_ini]["fecha"], "fin": historial[i_fin]["fecha"],
              "tiempo_real": r.tiempo_real, "tiempo_paro": r.tiempo_paro}
-    for campo, idx, nuevo in (("inicio", i_ini, body.inicio), ("fin", i_fin, body.fin)):
+    for campo, idx, nuevo in (("inicio", i_ini, inicio), ("fin", i_fin, fin)):
         if nuevo is None:
             continue
         nuevo = nuevo.replace(tzinfo=None, microsecond=0)
@@ -575,9 +574,51 @@ def revisar_registro(registro_id: int, body: RevisionIn, db: Session = Depends(g
         "REVISADO", user.username, user.nombre, ahora)
     db.add(RegistroRevision(id_registro=r.id, accion="REVISADO", usuario=user.username,
                             usuario_nombre=user.nombre, cambios=cambios, fecha=ahora))
+    return r
+
+
+@router.post("/registros/{registro_id}/revisar", response_model=RegistroOut)
+def revisar_registro(registro_id: int, body: RevisionIn, db: Session = Depends(get_db),
+                     user: Usuario = Depends(requiere("revisar_actividades"))):
+    r = _revisar(db, registro_id, body.inicio, body.fin, user)
     db.commit()
     db.refresh(r)
     return r
+
+
+class RevisionItem(RevisionIn):
+    id: int
+
+
+class RevisionLoteIn(BaseModel):
+    items: List[RevisionItem]
+
+
+@router.post("/registros/revisar-lote")
+def revisar_lote(body: RevisionLoteIn, db: Session = Depends(get_db),
+                 user: Usuario = Depends(requiere("revisar_actividades"))):
+    """Revisa varias actividades de una vez (check + Guardar del reporte). Cada
+    una se procesa por separado: si alguna no se puede (horas incoherentes, ya
+    revisada...), las demas igual se guardan y se informa cual fallo."""
+    if not body.items:
+        raise HTTPException(400, "No hay actividades para revisar")
+    if len(body.items) > 500:
+        raise HTTPException(400, "Máximo 500 actividades por vez")
+    revisados, errores = [], []
+    for it in body.items:
+        sp = db.begin_nested()
+        try:
+            r = _revisar(db, it.id, it.inicio, it.fin, user)
+            sp.commit()
+            revisados.append(r)
+        except HTTPException as e:
+            sp.rollback()
+            errores.append({"id": it.id, "detalle": e.detail})
+    db.commit()
+    for r in revisados:
+        db.refresh(r)
+    return {"revisados": [RegistroOut.model_validate(r).model_dump(mode="json") for r in revisados],
+            "errores": errores}
 
 
 @router.get("/registros/{registro_id}/revisiones")

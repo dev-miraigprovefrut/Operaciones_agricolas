@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import Swal from 'sweetalert2'
 import ExcelJS from 'exceljs'
+import HoraRueda from '../components/HoraRueda'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8007'
 
@@ -24,6 +25,10 @@ function ReporteActividades() {
   const [reporteActividad, setReporteActividad] = useState('')
   const [reporteEquipo, setReporteEquipo] = useState('')
   const [reporteRevision, setReporteRevision] = useState('') // '' | 'NO_REVISADO' | 'REVISADO'
+  // Revision en la tabla: horas editadas {id: {inicio:'HH:MM', fin:'HH:MM'}} y filas marcadas {id: true}
+  const [ediciones, setEdiciones] = useState({})
+  const [seleccion, setSeleccion] = useState({})
+  const [guardandoRevision, setGuardandoRevision] = useState(false)
   // Revisar/aprobar horas: admin del modulo o pestana 'revisar_actividades'
   const puedeRevisar = (() => {
     try {
@@ -68,62 +73,64 @@ function ReporteActividades() {
     }
   }
 
-  // ---- Revision (aprobacion) de horas ----
+  // ---- Revision (aprobacion) de horas: en la tabla, check + Guardar ----
   // Las fechas del historial vienen en hora local sin zona ('2026-10-01T14:27:05.123'):
-  // para el <input type="datetime-local"> basta 'YYYY-MM-DDTHH:MM'.
-  const aInputLocal = (iso) => (iso || '').substring(0, 16)
+  // se edita SOLO la hora (HH:MM); la fecha se conserva.
   const fmtFechaHora = (iso) => iso ? new Date(iso).toLocaleString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'
+  const horaDe = (iso) => (iso || '').substring(11, 16)
+  const conHora = (iso, hhmm) => `${(iso || '').substring(0, 10)}T${hhmm}:00`
+  const eventoInicio = (r) => r.fecha_historial?.find(h => h.accion === 'inicio')
+  const eventoFin = (r) => [...(r.fecha_historial || [])].reverse().find(h => h.accion === 'finalizado')
+  const esRevisable = (r) => puedeRevisar && r.estado === 'Finalizado' && r.revision_estado !== 'REVISADO'
+  const cantidadSeleccion = Object.values(seleccion).filter(Boolean).length
 
-  const abrirRevision = async (r) => {
-    const ini = r.fecha_historial?.find(h => h.accion === 'inicio')
-    const fi = [...(r.fecha_historial || [])].reverse().find(h => h.accion === 'finalizado')
-    const pausas = (r.fecha_historial || []).filter(h => h.accion === 'pausado').length
-    const est = 'width:100%;padding:0.45rem;border:1px solid #ccc;border-radius:6px;font-size:0.9rem;box-sizing:border-box;'
-    const res = await Swal.fire({
-      title: 'Revisar horas',
-      html: `
-        <div style="text-align:left;font-size:0.85rem;">
-          <p style="margin:0 0 0.6rem;"><b>${r.usuario || '-'}</b> · ${r.tractor || '-'}<br/>
-            ${r.actividad || '-'}${r.subactividad ? ' · ' + r.subactividad : ''}${r.lote ? ' · Lote ' + r.lote : ''}</p>
-          <label style="font-weight:600;">Inicio</label>
-          <input id="rev-inicio" type="datetime-local" style="${est}" value="${aInputLocal(ini?.fecha)}" />
-          <label style="font-weight:600;display:block;margin-top:0.6rem;">Fin</label>
-          <input id="rev-fin" type="datetime-local" style="${est}" value="${aInputLocal(fi?.fecha)}" />
-          ${pausas ? `<p style="margin:0.5rem 0 0;color:#888;font-size:0.75rem;">Tiene ${pausas} pausa(s): el inicio debe ser antes de ellas y el fin después.</p>` : ''}
-          <label style="display:flex;gap:0.5rem;align-items:center;margin-top:0.9rem;cursor:pointer;">
-            <input id="rev-ok" type="checkbox" style="width:18px;height:18px;" />
-            <span>Revisé las horas: marcar como <b>REVISADO</b>. Después no se podrá modificar.</span>
-          </label>
-        </div>`,
-      showCancelButton: true,
-      confirmButtonText: '<i class="bx bx-check"></i> Guardar revisión',
-      cancelButtonText: 'Cancelar',
-      confirmButtonColor: '#28a745',
-      focusConfirm: false,
-      showLoaderOnConfirm: true,
-      preConfirm: async () => {
-        const inicio = document.getElementById('rev-inicio').value
-        const fin = document.getElementById('rev-fin').value
-        if (!document.getElementById('rev-ok').checked) { Swal.showValidationMessage('Marque el check para confirmar la revisión'); return false }
-        if (!inicio || !fin) { Swal.showValidationMessage('Indique inicio y fin'); return false }
-        if (fin <= inicio) { Swal.showValidationMessage('El fin debe ser posterior al inicio'); return false }
-        try {
-          const resp = await fetch(`${API_URL}/api/registros/${r.id}/revisar`, {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ inicio, fin })
-          })
-          const data = await resp.json().catch(() => ({}))
-          if (!resp.ok) { Swal.showValidationMessage(data.detail || 'No se pudo guardar la revisión'); return false }
-          return data
-        } catch {
-          Swal.showValidationMessage('Sin conexión con el servidor'); return false
-        }
-      },
-      allowOutsideClick: () => !Swal.isLoading(),
+  const editarHora = (r, campo, hhmm) => {
+    setEdiciones(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), [campo]: hhmm } }))
+    setSeleccion(prev => ({ ...prev, [r.id]: true }))   // al corregir una hora se marca la fila
+  }
+
+  const guardarRevision = async () => {
+    const ids = Object.keys(seleccion).filter(id => seleccion[id]).map(Number)
+    if (!ids.length) return
+    const conf = await Swal.fire({
+      title: `¿Marcar ${ids.length} ${ids.length === 1 ? 'actividad' : 'actividades'} como REVISADAS?`,
+      text: 'Se guardan con las horas que ve en la tabla y después no se podrán modificar.',
+      icon: 'question', showCancelButton: true, confirmButtonText: 'Sí, guardar', cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#28a745'
     })
-    if (res.isConfirmed && res.value) {
-      setRegistros(prev => prev.map(x => x.id === r.id ? res.value : x))
-      Swal.fire({ icon: 'success', title: 'Actividad revisada', timer: 1300, showConfirmButton: false })
+    if (!conf.isConfirmed) return
+    const porId = Object.fromEntries(registros.map(r => [r.id, r]))
+    const items = ids.map(id => {
+      const r = porId[id]; const ed = ediciones[id] || {}
+      const ini = eventoInicio(r); const fi = eventoFin(r)
+      return {
+        id,
+        inicio: ed.inicio && ini && ed.inicio !== horaDe(ini.fecha) ? conHora(ini.fecha, ed.inicio) : null,
+        fin: ed.fin && fi && ed.fin !== horaDe(fi.fecha) ? conHora(fi.fecha, ed.fin) : null,
+      }
+    })
+    setGuardandoRevision(true)
+    try {
+      const resp = await fetch(`${API_URL}/api/registros/revisar-lote`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ items })
+      })
+      const data = await resp.json().catch(() => ({}))
+      if (!resp.ok) throw new Error(data.detail || 'No se pudo guardar la revisión')
+      const nuevos = Object.fromEntries((data.revisados || []).map(r => [r.id, r]))
+      setRegistros(prev => prev.map(r => nuevos[r.id] || r))
+      const ok = Object.keys(nuevos).map(Number)
+      setSeleccion(prev => { const n = { ...prev }; ok.forEach(id => delete n[id]); return n })
+      setEdiciones(prev => { const n = { ...prev }; ok.forEach(id => delete n[id]); return n })
+      if (data.errores?.length) {
+        Swal.fire({ icon: 'warning', title: `${ok.length} revisadas, ${data.errores.length} con problemas`,
+          html: data.errores.map(e => { const r = porId[e.id]; return `<p style="text-align:left;font-size:0.85rem;"><b>${r?.usuario || ''} · ${r?.actividad || e.id}</b><br/>${e.detalle}</p>` }).join('') })
+      } else {
+        Swal.fire({ icon: 'success', title: `${ok.length} ${ok.length === 1 ? 'actividad revisada' : 'actividades revisadas'}`, timer: 1300, showConfirmButton: false })
+      }
+    } catch (err) {
+      Swal.fire({ icon: 'error', title: 'Error', text: err.message || 'Sin conexión con el servidor' })
+    } finally {
+      setGuardandoRevision(false)
     }
   }
 
@@ -650,6 +657,16 @@ function ReporteActividades() {
             >
               <i className='bx bx-printer'></i> Imprimir
             </button>
+            {puedeRevisar && (
+              <button
+                onClick={guardarRevision}
+                disabled={!cantidadSeleccion || guardandoRevision}
+                style={{background: cantidadSeleccion ? '#28a745' : 'var(--color-bg-light)', border: 'none', color: cantidadSeleccion ? 'white' : 'var(--color-text-secondary)', borderRadius: '6px', padding: '0.4rem 0.8rem', cursor: cantidadSeleccion ? 'pointer' : 'default', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem', whiteSpace: 'nowrap'}}
+                title="Marcar como REVISADAS las actividades con check (quedan bloqueadas)"
+              >
+                <i className={`bx ${guardandoRevision ? 'bx-loader-alt bx-spin' : 'bx-check-double'}`}></i> Guardar revisión{cantidadSeleccion ? ` (${cantidadSeleccion})` : ''}
+              </button>
+            )}
             <button
               onClick={handleDescargarExcel}
               style={{background: '#7b1fa2', border: 'none', color: 'white', borderRadius: '6px', padding: '0.4rem 0.8rem', cursor: 'pointer', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem', whiteSpace: 'nowrap'}}
@@ -799,13 +816,22 @@ function ReporteActividades() {
                                 <th>T. Trabajado</th>
                                 <th>T. Paro</th>
                                 <th>Estado</th>
-                                <th>Revisión</th>
+                                <th style={{whiteSpace: 'nowrap'}}>
+                                  {puedeRevisar && regsDia.some(esRevisable) ? (
+                                    <label style={{display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer'}} title="Marcar todas las del día">
+                                      <input type="checkbox"
+                                        checked={regsDia.filter(esRevisable).every(r => seleccion[r.id])}
+                                        onChange={e => { const v = e.target.checked; setSeleccion(prev => { const n = { ...prev }; regsDia.filter(esRevisable).forEach(r => { n[r.id] = v }); return n }) }} />
+                                      Revisión
+                                    </label>
+                                  ) : 'Revisión'}
+                                </th>
                               </tr>
                             </thead>
                             <tbody>
                               {regsDia.map(r => {
                                 const inicio = r.fecha_historial?.find(h => h.accion === 'inicio')
-                                const fin = r.fecha_historial?.find(h => h.accion === 'finalizado')
+                                const fin = eventoFin(r)
                                 return (
                                   <tr key={r.id}>
                                     <td>{r.tractor || '-'}</td>
@@ -813,8 +839,16 @@ function ReporteActividades() {
                                     <td>{r.actividad === 'APOYOS GENERALES' ? 'Apoyo General' : (r.subactividad || '-')}</td>
                                     <td>{r.lote || '-'}</td>
                                     <td>{r.hacienda || '-'}</td>
-                                    <td>{inicio ? new Date(inicio.fecha).toLocaleTimeString('es-EC', {hour:'2-digit', minute:'2-digit'}) : '-'}</td>
-                                    <td>{fin ? new Date(fin.fecha).toLocaleTimeString('es-EC', {hour:'2-digit', minute:'2-digit'}) : '-'}</td>
+                                    {[['inicio', inicio], ['fin', fin]].map(([campo, ev]) => (
+                                      <td key={campo}>
+                                        {esRevisable(r) && ev ? (
+                                          <HoraRueda
+                                            value={ediciones[r.id]?.[campo] || horaDe(ev.fecha)}
+                                            modificado={!!ediciones[r.id]?.[campo] && ediciones[r.id][campo] !== horaDe(ev.fecha)}
+                                            onChange={hhmm => editarHora(r, campo, hhmm)} />
+                                        ) : (ev ? new Date(ev.fecha).toLocaleTimeString('es-EC', {hour:'2-digit', minute:'2-digit'}) : '-')}
+                                      </td>
+                                    ))}
                                     <td style={{color: '#28a745', fontWeight: 500}}>{formatMin(r.tiempo_real)}</td>
                                     <td style={{color: '#dc3545', fontWeight: 500}}>{formatMin(r.tiempo_paro)}</td>
                                     <td><span style={{background: r.estado === 'Finalizado' ? '#6c757d' : r.estado === 'Ejecutándose' ? '#28a745' : '#ffc107', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem'}}>{r.estado}</span></td>
@@ -824,11 +858,12 @@ function ReporteActividades() {
                                           style={{background: '#1b5e20', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem', whiteSpace: 'nowrap', cursor: 'help'}}>
                                           <i className='bx bxs-lock-alt'></i> Revisado
                                         </span>
-                                      ) : (puedeRevisar && r.estado === 'Finalizado') ? (
-                                        <button onClick={() => abrirRevision(r)} title="Revisar y aprobar las horas"
-                                          style={{background: 'transparent', border: '1px solid #28a745', color: '#28a745', padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem', cursor: 'pointer', whiteSpace: 'nowrap'}}>
-                                          <i className='bx bx-check-square'></i> Revisar
-                                        </button>
+                                      ) : esRevisable(r) ? (
+                                        <label style={{display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer', fontSize: '0.7rem', whiteSpace: 'nowrap'}} title="Marcar para guardar como revisada">
+                                          <input type="checkbox" checked={!!seleccion[r.id]}
+                                            onChange={e => setSeleccion(prev => ({ ...prev, [r.id]: e.target.checked }))} />
+                                          No revisado
+                                        </label>
                                       ) : (
                                         <span style={{color: 'var(--color-text-secondary)', fontSize: '0.7rem', whiteSpace: 'nowrap'}}>No revisado</span>
                                       )}
