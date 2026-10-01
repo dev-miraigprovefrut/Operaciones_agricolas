@@ -2,7 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
-import { cargarSesion, renovarSesion, esTractorista, HUB_LOGIN_URL } from './services/sesion.js'
+import { cargarSesion, renovarSesion, esTractorista, cerrarPestana, HUB_LOGIN_URL, HUB_URL } from './services/sesion.js'
 
 // Enlaces viejos del HUB traen #token=... en la URL: ya no se usa (la sesion
 // va en la cookie del HUB), solo se limpia.
@@ -32,16 +32,14 @@ function pantalla({ icono, color, titulo, texto, botones = [] }) {
   root.querySelectorAll('button').forEach(btn => { btn.onclick = botones[+btn.dataset.i].accion })
 }
 
-const irAlLogin = () => {
-  if (esTractorista() || esDominioTractoristas) window.location.href = '/login-tractorista'
-  else window.location.href = HUB_LOGIN_URL
-}
-
+// Sesion vencida o no valida: se cierra la pestaña del modulo (el HUB la abrio);
+// si el navegador no lo permite, al login del HUB. Los tractoristas vuelven a
+// su login de cedula + PIN.
 function sesionExpirada() {
   if (esTractorista() || esDominioTractoristas) { window.location.href = '/login-tractorista'; return }
   pantalla({ icono: 'bx-lock-alt', color: '#ff8a80', titulo: 'Sesión expirada',
-    texto: 'Su sesión ha finalizado. Vuelva a iniciar sesión en MirAI.',
-    botones: [{ texto: 'Ir al login', accion: irAlLogin }, { texto: 'Reintentar', accion: () => window.location.reload() }] })
+    texto: 'Su sesión ha finalizado. Cerrando...', botones: [] })
+  cerrarPestana(HUB_LOGIN_URL)
 }
 
 function renderizar() {
@@ -63,7 +61,9 @@ async function iniciar() {
   if (estado === 'sin_acceso') {
     pantalla({ icono: 'bx-block', color: '#ffb74d', titulo: 'Sin acceso',
       texto: 'Su usuario no tiene acceso al módulo Operaciones Agrícolas. Solicítelo al administrador del módulo.',
-      botones: [{ texto: 'Volver a MirAI', accion: () => { window.location.href = HUB_LOGIN_URL } }] })
+      botones: [] })
+    // se deja leer el mensaje y se cierra la pestaña (o vuelve al HUB)
+    setTimeout(() => cerrarPestana(HUB_URL), 3500)
     return
   }
   pantalla({ icono: 'bx-wifi-off', color: '#ff8a80', titulo: 'Sin conexión',

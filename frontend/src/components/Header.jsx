@@ -4,7 +4,7 @@ import useOnlineStatus from '../services/useOnlineStatus'
 import { activarVerComo, salirVerComo, verComoActivo, verComoNombre } from '../services/verComo'
 import { useEmpresas } from '../services/useEmpresas'
 import { logoUrl } from '../services/empresasService'
-import { cerrarSesion as cerrarSesionMirai } from '../services/sesion'
+import { cerrarPestana, HUB_URL, limpiarDatosSesion } from '../services/sesion'
 
 const NUMERO_EMPRESA = '222'
 
@@ -119,25 +119,11 @@ function Header({ onMenuClick }) {
       confirmButtonColor: '#7b1fa2'
     })
     if (!conf.isConfirmed) return
-    // Cierra la sesion del HUB (cookie de todo el ecosistema MirAI)
-    await cerrarSesionMirai()
-    document.title = 'Sesión cerrada'
-    // Intentar cerrar la pestaña (solo funciona si la abrio window.open);
-    // si no se puede, mostrar el mismo mensaje que usa el resto de la app
-    // cuando termina la sesion (ver mostrarSesionExpirada en main.jsx).
-    window.close()
-    setTimeout(() => {
-      const root = document.getElementById('root')
-      if (root) {
-        root.innerHTML = `
-          <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#1a1a1a;color:white;font-family:sans-serif;flex-direction:column;gap:1rem;">
-            <i class="bx bx-check-circle" style="font-size:3rem;color:#a5d6a7;"></i>
-            <h2 style="margin:0;">Sesión cerrada</h2>
-            <p style="margin:0;color:#aaa;">Puede cerrar esta ventana.</p>
-          </div>
-        `
-      }
-    }, 200)
+    // Salir del MODULO: se cierra la pestaña y el HUB sigue con su sesion
+    // (cerrar sesion de todo MirAI se hace desde el HUB). Si el navegador no
+    // deja cerrarla, se vuelve al HUB.
+    limpiarDatosSesion()
+    cerrarPestana(HUB_URL)
   }
 
   return (

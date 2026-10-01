@@ -93,6 +93,18 @@ export async function cargarSesion() {
   return 'ok'
 }
 
+/** URL del HUB (de donde se abre el modulo). */
+export const HUB_URL = new URL(HUB_LOGIN_URL).origin
+
+/**
+ * Cierra la pestaña del modulo (el HUB la abrio con window.open). Si el
+ * navegador no lo permite (la pestaña no la abrio un script), va a `destino`.
+ */
+export function cerrarPestana(destino = HUB_URL) {
+  window.close()
+  setTimeout(() => { window.location.href = destino }, 300)
+}
+
 /** Cierra la sesion: la del tractorista en este modulo, o la del HUB (todo el ecosistema). */
 export async function cerrarSesion() {
   try {
