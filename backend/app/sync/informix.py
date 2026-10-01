@@ -57,8 +57,11 @@ def ejecutar_query(sql: str, params: list | None = None) -> list[list[str]]:
     jpype = _jvm()
     url = (f"jdbc:informix-sqli://{settings.DB_INFORMIX_HOST}:{settings.DB_INFORMIX_PORT}/"
            f"{settings.DB_INFORMIX_NAME}:INFORMIXSERVER={settings.DB_INFORMIX_SERVER}")
-    conn = jpype.JClass("java.sql.DriverManager").getConnection(url, settings.DB_INFORMIX_USER,
-                                                                 settings.DB_INFORMIX_PASSWORD)
+    dm = jpype.JClass("java.sql.DriverManager")
+    # Si la VPN a la planta esta caida, sin limite cada conexion espera ~2 min
+    # (el boton 'Sincronizar' terminaba en 504 del ALB). Se corta a los 10 s.
+    dm.setLoginTimeout(10)
+    conn = dm.getConnection(url, settings.DB_INFORMIX_USER, settings.DB_INFORMIX_PASSWORD)
     try:
         if params:
             st = conn.prepareStatement(sql)
