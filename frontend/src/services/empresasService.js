@@ -10,8 +10,9 @@ const API_BASE = import.meta.env?.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/api/v1`
   : '/api/v1'
 
-/** URL del logo (maestro Empresas: URL directa del tema). */
-export const logoUrl = (empresa) => empresa?.logo_url || ''
+/** URL del logo: lo sirve el backend (el bucket del tema en S3 es privado). */
+export const logoUrl = (empresa) =>
+  empresa?.logo_url ? `${API_BASE}/empresas/logo/${empresa.numero}` : ''
 
 /** Obtiene la lista de empresas. */
 export async function listarEmpresas() {
