@@ -8,6 +8,7 @@ import logging
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from .config import settings
@@ -22,6 +23,9 @@ app = FastAPI(title="Operaciones Agrícolas API", version="2.0.0",
 
 app.add_middleware(CORSMiddleware, allow_origins=settings.cors_origins, allow_credentials=True,
                    allow_methods=["*"], allow_headers=["*"])
+# Respuestas comprimidas: las fichas de cosecha pesan ~500 KB en JSON (~50 KB en
+# gzip); en el celular con datos moviles la diferencia se nota mucho.
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 @app.exception_handler(Exception)

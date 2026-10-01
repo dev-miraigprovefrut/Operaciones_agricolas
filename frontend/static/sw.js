@@ -1,4 +1,4 @@
-const CACHE_NAME = 'opagricola-v4'
+const CACHE_NAME = 'opagricola-v5'
 
 // Archivos esenciales para que la app funcione offline
 const PRECACHE_URLS = [

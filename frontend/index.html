@@ -31,21 +31,25 @@
           })
           caches.keys().then(keys => keys.forEach(k => caches.delete(k)))
         } else {
-          // En producción: registrar SW con auto-actualización
+          // En producción: registrar SW con auto-actualización.
+          // Solo se recarga cuando una version NUEVA reemplaza a otra que ya
+          // controlaba la pagina, y UNA sola vez (antes recargaba tambien en la
+          // primera instalacion y podia quedar en bucle de recargas).
           window.addEventListener('load', () => {
+            const habiaControlador = !!navigator.serviceWorker.controller
             navigator.serviceWorker.register('/sw.js').then(reg => {
-              // Revisar actualizaciones cada 60 segundos
               setInterval(() => reg.update(), 60000)
-              // Cuando hay nuevo SW, recargar la página
               reg.addEventListener('updatefound', () => {
                 const newSW = reg.installing
-                if (newSW) {
-                  newSW.addEventListener('statechange', () => {
-                    if (newSW.state === 'activated') {
-                      window.location.reload()
-                    }
-                  })
-                }
+                if (!newSW || !habiaControlador) return
+                newSW.addEventListener('statechange', () => {
+                  if (newSW.state !== 'activated') return
+                  try {
+                    if (sessionStorage.getItem('sw_recargado') === newSW.scriptURL + reg.active?.scriptURL) return
+                    sessionStorage.setItem('sw_recargado', newSW.scriptURL + reg.active?.scriptURL)
+                  } catch (e) { return }
+                  window.location.reload()
+                })
               })
             }).catch(() => {})
           })
