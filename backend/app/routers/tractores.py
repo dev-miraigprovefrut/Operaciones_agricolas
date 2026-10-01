@@ -15,12 +15,12 @@ from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from ..auth import Usuario, sesion_o_kiosko
+from ..auth import Usuario, requiere, sesion_o_kiosko
 from ..clients import equipos, notificaciones
 from ..comun import TZ_ECUADOR, ahora_ecuador
 from ..config import settings
 from ..database import get_db, get_mant_db
-from ..models import Actividad, CheckList, Registro, TractorFalla
+from ..models import Actividad, CheckList, Registro, RegistroRevision, TractorFalla
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -346,9 +346,21 @@ class RegistroOut(BaseModel):
     tiempo_paro: float = 0.0
     tiempo_real: float = 0.0
     estado: str
+    revision_estado: str = "NO_REVISADO"
+    revisado_por: Optional[str] = None
+    revisado_por_nombre: Optional[str] = None
+    fecha_revision: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+
+
+def _no_revisado(r: Registro) -> None:
+    """Un registro REVISADO (horas aprobadas) queda bloqueado para cambios."""
+    if r.revision_estado == "REVISADO":
+        quien = r.revisado_por_nombre or r.revisado_por or "un supervisor"
+        cuando = r.fecha_revision.strftime("%d/%m/%Y %H:%M") if r.fecha_revision else ""
+        raise HTTPException(409, f"Actividad ya revisada por {quien} {cuando}: no se puede modificar".strip())
 
 
 ESTADOS_REGISTRO = {"Pendiente", "Ejecutándose", "Pausado", "Finalizado", "Eliminado"}
@@ -455,6 +467,7 @@ def editar_registro(registro_id: int, registro: RegistroUpdate, db: Session = De
     # Idempotencia: reintento de la cola offline de un cambio ya aplicado.
     if registro.estado is not None and registro.estado == r.estado:
         return r
+    _no_revisado(r)
 
     ahora = ahora_ecuador()
     historial = list(r.fecha_historial or [])
@@ -491,6 +504,87 @@ def eliminar_registro(registro_id: int, db: Session = Depends(get_db), _: Usuari
     r = db.get(Registro, registro_id)
     if not r:
         raise HTTPException(404, "Registro no encontrado")
+    _no_revisado(r)
     r.estado = "Eliminado"           # borrado logico
     db.commit()
     return {"message": "Registro eliminado"}
+
+
+# --------------------------------------------------- revision de horas
+class RevisionIn(BaseModel):
+    inicio: Optional[datetime] = None     # hora local (Ecuador), como se guarda
+    fin: Optional[datetime] = None
+
+
+def _primera(historial: list[dict], accion: str) -> int | None:
+    return next((i for i, e in enumerate(historial) if e.get("accion") == accion), None)
+
+
+def _ultima(historial: list[dict], accion: str) -> int | None:
+    return next((i for i in range(len(historial) - 1, -1, -1) if historial[i].get("accion") == accion), None)
+
+
+@router.post("/registros/{registro_id}/revisar", response_model=RegistroOut)
+def revisar_registro(registro_id: int, body: RevisionIn, db: Session = Depends(get_db),
+                     user: Usuario = Depends(requiere("revisar_actividades"))):
+    """Revisa (aprueba) las horas de una actividad FINALIZADA. Se pueden
+    corregir la fecha/hora de inicio y de fin; se recalculan los tiempos, la
+    actividad queda REVISADA y BLOQUEADA, y se registra quien y que cambio."""
+    r = db.query(Registro).filter(Registro.id == registro_id).with_for_update().first()
+    if not r:
+        raise HTTPException(404, "Registro no encontrado")
+    _no_revisado(r)
+    if r.estado != "Finalizado":
+        raise HTTPException(400, "Solo se pueden revisar actividades finalizadas")
+    historial = [dict(e) for e in (r.fecha_historial or [])]
+    i_ini, i_fin = _primera(historial, "inicio"), _ultima(historial, "finalizado")
+    if i_ini is None or i_fin is None:
+        raise HTTPException(400, "La actividad no tiene registrado su inicio y fin")
+
+    cambios: dict = {}
+    antes = {"inicio": historial[i_ini]["fecha"], "fin": historial[i_fin]["fecha"],
+             "tiempo_real": r.tiempo_real, "tiempo_paro": r.tiempo_paro}
+    for campo, idx, nuevo in (("inicio", i_ini, body.inicio), ("fin", i_fin, body.fin)):
+        if nuevo is None:
+            continue
+        nuevo = nuevo.replace(tzinfo=None, microsecond=0)
+        if datetime.fromisoformat(historial[idx]["fecha"]).replace(microsecond=0) != nuevo:
+            historial[idx]["fecha"] = nuevo.isoformat()
+            cambios[campo] = [antes[campo], nuevo.isoformat()]
+
+    if cambios:
+        fechas = [datetime.fromisoformat(e["fecha"]) for e in historial]
+        if any(b < a for a, b in zip(fechas, fechas[1:])):
+            raise HTTPException(400, "Las horas no son coherentes: el inicio debe ser anterior a las pausas "
+                                     "y el fin posterior a la última pausa/reanudación")
+        if fechas[i_fin] <= fechas[i_ini]:
+            raise HTTPException(400, "El fin debe ser posterior al inicio")
+        r.tiempo_paro, r.tiempo_real = _calcular_tiempos(historial)
+        r.tiempo_inicio, r.fecha_fin = fechas[i_ini], fechas[i_fin]
+        if fechas[i_ini].date() != r.fecha_creacion.date():
+            # la actividad se cambio de dia: el reporte la agrupa por fecha_creacion
+            cambios["fecha"] = [r.fecha_creacion.isoformat(), fechas[i_ini].isoformat()]
+            r.fecha_creacion = fechas[i_ini]
+        cambios["tiempo_real"] = [antes["tiempo_real"], r.tiempo_real]
+        cambios["tiempo_paro"] = [antes["tiempo_paro"], r.tiempo_paro]
+        r.fecha_historial = historial
+        flag_modified(r, "fecha_historial")
+
+    ahora = ahora_ecuador()
+    r.revision_estado, r.revisado_por, r.revisado_por_nombre, r.fecha_revision = (
+        "REVISADO", user.username, user.nombre, ahora)
+    db.add(RegistroRevision(id_registro=r.id, accion="REVISADO", usuario=user.username,
+                            usuario_nombre=user.nombre, cambios=cambios, fecha=ahora))
+    db.commit()
+    db.refresh(r)
+    return r
+
+
+@router.get("/registros/{registro_id}/revisiones")
+def historial_revision(registro_id: int, db: Session = Depends(get_db),
+                       _: Usuario = Depends(requiere("revisar_actividades", "reportes_actividades"))):
+    """Quien reviso la actividad y que cambio."""
+    filas = db.scalars(select(RegistroRevision).where(RegistroRevision.id_registro == registro_id)
+                       .order_by(RegistroRevision.fecha))
+    return [{"accion": f.accion, "usuario": f.usuario, "usuario_nombre": f.usuario_nombre,
+             "cambios": f.cambios, "fecha": f.fecha} for f in filas]

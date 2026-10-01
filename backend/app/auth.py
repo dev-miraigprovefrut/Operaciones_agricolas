@@ -26,6 +26,7 @@ PESTANAS = [
     "registrar_actividades", "registrar_cosecha",
     "catalogos_actividades", "catalogos_camiones", "catalogos_tractoristas", "catalogos_supervisores",
     "reportes_actividades", "reportes_cosecha", "reportes_seguridad",
+    "revisar_actividades",   # revisar/aprobar las horas de los tractoristas
 ]
 PESTANAS_TRACTORISTA = ["registrar_actividades"]
 TIPO_TRACTORISTA = "tractorista"

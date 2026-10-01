@@ -32,6 +32,7 @@ const MENU_PERMISOS = [
       { key: 'reportes_actividades', label: 'Actividades', icon: 'bx bx-calendar' },
       { key: 'reportes_cosecha', label: 'Cosecha', icon: 'bx bx-leaf' },
       { key: 'reportes_seguridad', label: 'R. Seguridad', icon: 'bx bx-shield-quarter' },
+      { key: 'revisar_actividades', label: 'Revisar horas', icon: 'bx bx-check-square' },
     ]
   },
 ]

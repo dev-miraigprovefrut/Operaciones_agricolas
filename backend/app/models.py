@@ -137,6 +137,23 @@ class Registro(_Empresa, Base):
     tiempo_paro = Column(Float, nullable=False, default=0.0)
     tiempo_real = Column(Float, nullable=False, default=0.0)
     estado = Column(String(20), nullable=False, default="Pendiente")
+    # Revision (aprobacion) de horas: REVISADO = bloqueado para cambios
+    revision_estado = Column(String(15), nullable=False, default="NO_REVISADO")
+    revisado_por = Column(String(150))
+    revisado_por_nombre = Column(String(200))
+    fecha_revision = Column(DateTime)
+
+
+class RegistroRevision(_Empresa, Base):
+    """Historial de revisiones de un registro: quien, cuando y que cambio."""
+    __tablename__ = "registro_revision"
+    id = Column("id_registro_revision", BigInteger, primary_key=True)
+    id_registro = Column(BigInteger, ForeignKey("registro.id_registro", ondelete="CASCADE"), nullable=False)
+    accion = Column(String(20), nullable=False, default="REVISADO")
+    usuario = Column(String(150), nullable=False)
+    usuario_nombre = Column(String(200))
+    cambios = Column(JSONB, nullable=False, default=dict)
+    fecha = Column(DateTime, server_default=func.now())
 
 
 class TractorFalla(_Empresa, Base):

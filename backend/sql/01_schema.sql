@@ -276,3 +276,29 @@ CREATE TABLE IF NOT EXISTS cosecha (
 CREATE INDEX IF NOT EXISTS ix_cosecha_transporte ON cosecha (id_cosecha_transporte);
 CREATE INDEX IF NOT EXISTS ix_cosecha_numeracion ON cosecha (numeracion);
 CREATE INDEX IF NOT EXISTS ix_cosecha_num_ficha ON cosecha (num_ficha);
+
+-- ------------------------------------------------- revision de horas (aprobacion)
+-- Un supervisor revisa las horas del tractorista (puede corregir inicio/fin) y
+-- al guardar la actividad queda REVISADO y BLOQUEADA para otros cambios.
+ALTER TABLE registro ADD COLUMN IF NOT EXISTS revision_estado     VARCHAR(15) NOT NULL DEFAULT 'NO_REVISADO';
+ALTER TABLE registro ADD COLUMN IF NOT EXISTS revisado_por        VARCHAR(150);   -- login HUB
+ALTER TABLE registro ADD COLUMN IF NOT EXISTS revisado_por_nombre VARCHAR(200);
+ALTER TABLE registro ADD COLUMN IF NOT EXISTS fecha_revision      TIMESTAMP;
+DO $$ BEGIN
+    ALTER TABLE registro ADD CONSTRAINT ck_registro_revision_estado CHECK (revision_estado IN ('NO_REVISADO', 'REVISADO'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+CREATE INDEX IF NOT EXISTS ix_registro_revision ON registro (revision_estado);
+
+-- Historial de revisiones: quien, cuando y que cambio (antes -> despues).
+CREATE TABLE IF NOT EXISTS registro_revision (
+    id_registro_revision BIGSERIAL    PRIMARY KEY,
+    tenant_id            BIGINT       NOT NULL DEFAULT 1,
+    numero_empresa       VARCHAR(10)  NOT NULL DEFAULT '222',
+    id_registro          BIGINT       NOT NULL REFERENCES registro (id_registro) ON DELETE CASCADE,
+    accion               VARCHAR(20)  NOT NULL DEFAULT 'REVISADO',
+    usuario              VARCHAR(150) NOT NULL,
+    usuario_nombre       VARCHAR(200),
+    cambios              JSONB        NOT NULL DEFAULT '{}'::jsonb,
+    fecha                TIMESTAMP    NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_registro_revision_registro ON registro_revision (id_registro);

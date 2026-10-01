@@ -23,6 +23,14 @@ function ReporteActividades() {
   // Filtros adicionales para Reporte
   const [reporteActividad, setReporteActividad] = useState('')
   const [reporteEquipo, setReporteEquipo] = useState('')
+  const [reporteRevision, setReporteRevision] = useState('') // '' | 'NO_REVISADO' | 'REVISADO'
+  // Revisar/aprobar horas: admin del modulo o pestana 'revisar_actividades'
+  const puedeRevisar = (() => {
+    try {
+      const p = JSON.parse(localStorage.getItem('user_permisos_operagricola') || '{}')
+      return !!p.es_admin || (p.pestanas || []).includes('revisar_actividades')
+    } catch { return false }
+  })()
   const [zoomLevel, setZoomLevel] = useState(50) // px por hora
   const [tooltip, setTooltip] = useState(null) // {x, y, texto}
   const printIframeRef = useRef(null)
@@ -57,6 +65,65 @@ function ReporteActividades() {
       console.error('Error cargando registros:', err)
     } finally {
       setLoading(false)
+    }
+  }
+
+  // ---- Revision (aprobacion) de horas ----
+  // Las fechas del historial vienen en hora local sin zona ('2026-10-01T14:27:05.123'):
+  // para el <input type="datetime-local"> basta 'YYYY-MM-DDTHH:MM'.
+  const aInputLocal = (iso) => (iso || '').substring(0, 16)
+  const fmtFechaHora = (iso) => iso ? new Date(iso).toLocaleString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'
+
+  const abrirRevision = async (r) => {
+    const ini = r.fecha_historial?.find(h => h.accion === 'inicio')
+    const fi = [...(r.fecha_historial || [])].reverse().find(h => h.accion === 'finalizado')
+    const pausas = (r.fecha_historial || []).filter(h => h.accion === 'pausado').length
+    const est = 'width:100%;padding:0.45rem;border:1px solid #ccc;border-radius:6px;font-size:0.9rem;box-sizing:border-box;'
+    const res = await Swal.fire({
+      title: 'Revisar horas',
+      html: `
+        <div style="text-align:left;font-size:0.85rem;">
+          <p style="margin:0 0 0.6rem;"><b>${r.usuario || '-'}</b> · ${r.tractor || '-'}<br/>
+            ${r.actividad || '-'}${r.subactividad ? ' · ' + r.subactividad : ''}${r.lote ? ' · Lote ' + r.lote : ''}</p>
+          <label style="font-weight:600;">Inicio</label>
+          <input id="rev-inicio" type="datetime-local" style="${est}" value="${aInputLocal(ini?.fecha)}" />
+          <label style="font-weight:600;display:block;margin-top:0.6rem;">Fin</label>
+          <input id="rev-fin" type="datetime-local" style="${est}" value="${aInputLocal(fi?.fecha)}" />
+          ${pausas ? `<p style="margin:0.5rem 0 0;color:#888;font-size:0.75rem;">Tiene ${pausas} pausa(s): el inicio debe ser antes de ellas y el fin después.</p>` : ''}
+          <label style="display:flex;gap:0.5rem;align-items:center;margin-top:0.9rem;cursor:pointer;">
+            <input id="rev-ok" type="checkbox" style="width:18px;height:18px;" />
+            <span>Revisé las horas: marcar como <b>REVISADO</b>. Después no se podrá modificar.</span>
+          </label>
+        </div>`,
+      showCancelButton: true,
+      confirmButtonText: '<i class="bx bx-check"></i> Guardar revisión',
+      cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#28a745',
+      focusConfirm: false,
+      showLoaderOnConfirm: true,
+      preConfirm: async () => {
+        const inicio = document.getElementById('rev-inicio').value
+        const fin = document.getElementById('rev-fin').value
+        if (!document.getElementById('rev-ok').checked) { Swal.showValidationMessage('Marque el check para confirmar la revisión'); return false }
+        if (!inicio || !fin) { Swal.showValidationMessage('Indique inicio y fin'); return false }
+        if (fin <= inicio) { Swal.showValidationMessage('El fin debe ser posterior al inicio'); return false }
+        try {
+          const resp = await fetch(`${API_URL}/api/registros/${r.id}/revisar`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ inicio, fin })
+          })
+          const data = await resp.json().catch(() => ({}))
+          if (!resp.ok) { Swal.showValidationMessage(data.detail || 'No se pudo guardar la revisión'); return false }
+          return data
+        } catch {
+          Swal.showValidationMessage('Sin conexión con el servidor'); return false
+        }
+      },
+      allowOutsideClick: () => !Swal.isLoading(),
+    })
+    if (res.isConfirmed && res.value) {
+      setRegistros(prev => prev.map(x => x.id === r.id ? res.value : x))
+      Swal.fire({ icon: 'success', title: 'Actividad revisada', timer: 1300, showConfirmButton: false })
     }
   }
 
@@ -396,11 +463,11 @@ function ReporteActividades() {
 
   const generarTablaOperador = (regs) => {
     return `<table>
-      <thead><tr><th>Fecha</th><th>Tractor</th><th>Actividad</th><th>Subactividad</th><th>Lote</th><th>Hacienda</th><th>Inicio</th><th>Fin</th><th>T. Trabajado</th><th>T. Paro</th><th>Estado</th></tr></thead>
+      <thead><tr><th>Fecha</th><th>Tractor</th><th>Actividad</th><th>Subactividad</th><th>Lote</th><th>Hacienda</th><th>Inicio</th><th>Fin</th><th>T. Trabajado</th><th>T. Paro</th><th>Estado</th><th>Revisión</th></tr></thead>
       <tbody>${regs.map(r => {
         const ini = r.fecha_historial?.find(h => h.accion === 'inicio')
         const fi = r.fecha_historial?.find(h => h.accion === 'finalizado')
-        return '<tr><td>'+(r.fecha_creacion ? new Date(r.fecha_creacion).toLocaleDateString('es-EC') : '-')+'</td><td>'+(r.tractor||'-')+'</td><td>'+(r.actividad||'-')+'</td><td>'+(r.subactividad||'-')+'</td><td>'+(r.lote||'-')+'</td><td>'+(r.hacienda||'-')+'</td><td>'+(ini ? new Date(ini.fecha).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}) : '-')+'</td><td>'+(fi ? new Date(fi.fecha).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}) : '-')+'</td><td>'+fmtMinPrint(r.tiempo_real)+'</td><td>'+fmtMinPrint(r.tiempo_paro)+'</td><td>'+(r.estado||'-')+'</td></tr>'
+        return '<tr><td>'+(r.fecha_creacion ? new Date(r.fecha_creacion).toLocaleDateString('es-EC') : '-')+'</td><td>'+(r.tractor||'-')+'</td><td>'+(r.actividad||'-')+'</td><td>'+(r.subactividad||'-')+'</td><td>'+(r.lote||'-')+'</td><td>'+(r.hacienda||'-')+'</td><td>'+(ini ? new Date(ini.fecha).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}) : '-')+'</td><td>'+(fi ? new Date(fi.fecha).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}) : '-')+'</td><td>'+fmtMinPrint(r.tiempo_real)+'</td><td>'+fmtMinPrint(r.tiempo_paro)+'</td><td>'+(r.estado||'-')+'</td><td>'+(r.revision_estado === 'REVISADO' ? 'Revisado ('+(r.revisado_por_nombre||r.revisado_por||'')+')' : 'No revisado')+'</td></tr>'
       }).join('')}</tbody></table>`
   }
 
@@ -411,6 +478,7 @@ function ReporteActividades() {
     if (reporteOperador) filtrados = filtrados.filter(r => r.usuario === reporteOperador)
     if (reporteActividad) filtrados = filtrados.filter(r => r.actividad === reporteActividad)
     if (reporteEquipo) filtrados = filtrados.filter(r => r.tractor === reporteEquipo)
+    if (reporteRevision) filtrados = filtrados.filter(r => (r.revision_estado || 'NO_REVISADO') === reporteRevision)
     if (reporteBusqueda) {
       const b = reporteBusqueda.toLowerCase()
       filtrados = filtrados.filter(r =>
@@ -430,7 +498,7 @@ function ReporteActividades() {
     const porOperador = {}
     filtrados.forEach(r => { const op = r.usuario || 'Sin operador'; if (!porOperador[op]) porOperador[op] = []; porOperador[op].push(r) })
 
-    const COLS = ['Fecha', 'Tractor', 'Actividad', 'Subactividad', 'Lote', 'Hacienda', 'Inicio', 'Fin', 'T. Trabajado (min)', 'T. Paro (min)', 'Estado']
+    const COLS = ['Fecha', 'Tractor', 'Actividad', 'Subactividad', 'Lote', 'Hacienda', 'Inicio', 'Fin', 'T. Trabajado (min)', 'T. Paro (min)', 'Estado', 'Revisión', 'Revisado por', 'Fecha revisión']
     const MORADO = 'FF7B1FA2'
     const BLANCO = 'FFFFFFFF'
     const GRIS_RESUMEN = 'FFD9D9E3'
@@ -474,7 +542,10 @@ function ReporteActividades() {
             fi ? new Date(fi.fecha).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' }) : '-',
             r.tiempo_real ? Math.round(r.tiempo_real) : 0,
             r.tiempo_paro ? Math.round(r.tiempo_paro) : 0,
-            r.estado || '-'
+            r.estado || '-',
+            r.revision_estado === 'REVISADO' ? 'Revisado' : 'No revisado',
+            r.revisado_por_nombre || r.revisado_por || '',
+            r.fecha_revision ? fmtFechaHora(r.fecha_revision) : ''
           ]
           valores.forEach((v, idx) => { hoja.getRow(fila).getCell(idx + 1).value = v })
           fila++
@@ -625,8 +696,13 @@ function ReporteActividades() {
                 <option key={eq} value={eq}>{eq}</option>
               ))}
             </select>
-            {(reporteOperador || reporteActividad || reporteEquipo || reporteBusqueda) && (
-              <button onClick={() => { setReporteOperador(''); setReporteActividad(''); setReporteEquipo(''); setReporteBusqueda('') }}
+            <select className="form-control" value={reporteRevision} onChange={e => setReporteRevision(e.target.value)} style={{fontSize: '0.75rem', padding: '0.25rem 0.4rem', maxWidth: '160px'}}>
+              <option value="">Revisadas y no revisadas</option>
+              <option value="NO_REVISADO">No revisadas</option>
+              <option value="REVISADO">Revisadas</option>
+            </select>
+            {(reporteOperador || reporteActividad || reporteEquipo || reporteBusqueda || reporteRevision) && (
+              <button onClick={() => { setReporteOperador(''); setReporteActividad(''); setReporteEquipo(''); setReporteBusqueda(''); setReporteRevision('') }}
                 style={{background: 'transparent', border: '1px solid var(--color-border)', color: 'var(--color-text-secondary)', cursor: 'pointer', fontSize: '0.72rem', padding: '0.25rem 0.5rem', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '0.2rem'}}
                 title="Limpiar filtros"
               >
@@ -723,6 +799,7 @@ function ReporteActividades() {
                                 <th>T. Trabajado</th>
                                 <th>T. Paro</th>
                                 <th>Estado</th>
+                                <th>Revisión</th>
                               </tr>
                             </thead>
                             <tbody>
@@ -741,6 +818,21 @@ function ReporteActividades() {
                                     <td style={{color: '#28a745', fontWeight: 500}}>{formatMin(r.tiempo_real)}</td>
                                     <td style={{color: '#dc3545', fontWeight: 500}}>{formatMin(r.tiempo_paro)}</td>
                                     <td><span style={{background: r.estado === 'Finalizado' ? '#6c757d' : r.estado === 'Ejecutándose' ? '#28a745' : '#ffc107', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem'}}>{r.estado}</span></td>
+                                    <td>
+                                      {r.revision_estado === 'REVISADO' ? (
+                                        <span title={`Revisado por ${r.revisado_por_nombre || r.revisado_por || '-'} el ${fmtFechaHora(r.fecha_revision)}`}
+                                          style={{background: '#1b5e20', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem', whiteSpace: 'nowrap', cursor: 'help'}}>
+                                          <i className='bx bxs-lock-alt'></i> Revisado
+                                        </span>
+                                      ) : (puedeRevisar && r.estado === 'Finalizado') ? (
+                                        <button onClick={() => abrirRevision(r)} title="Revisar y aprobar las horas"
+                                          style={{background: 'transparent', border: '1px solid #28a745', color: '#28a745', padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem', cursor: 'pointer', whiteSpace: 'nowrap'}}>
+                                          <i className='bx bx-check-square'></i> Revisar
+                                        </button>
+                                      ) : (
+                                        <span style={{color: 'var(--color-text-secondary)', fontSize: '0.7rem', whiteSpace: 'nowrap'}}>No revisado</span>
+                                      )}
+                                    </td>
                                   </tr>
                                 )
                               })}
