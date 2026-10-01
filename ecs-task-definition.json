@@ -33,7 +33,7 @@
         {"name": "DB_INFORMIX_PORT", "value": "1526"},
         {"name": "DB_INFORMIX_SERVER", "value": "ol_planta"},
         {"name": "DB_INFORMIX_NAME", "value": "lasso"},
-        {"name": "SYNC_INFORMIX", "value": "false"},
+        {"name": "SYNC_INFORMIX", "value": "true"},
         {"name": "KIOSKO_SIN_SESION", "value": "true"},
         {"name": "COOKIE_SECURE", "value": "true"},
         {"name": "CORS_ORIGINS", "value": "https://agricola.miraigprovefrut.com,https://operacionesa.miraigprovefrut.com,https://tractoristas.miraigprovefrut.com"},
