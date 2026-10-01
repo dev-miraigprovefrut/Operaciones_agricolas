@@ -85,7 +85,7 @@ class Settings(BaseSettings):
     DB_INFORMIX_HOST: str = "172.20.4.51"
     DB_INFORMIX_PORT: int = 1526
     DB_INFORMIX_SERVER: str = "ol_planta"
-    DB_INFORMIX_NAME: str = "lassod"
+    DB_INFORMIX_NAME: str = "lasso"
     DB_INFORMIX_USER: str = ""
     DB_INFORMIX_PASSWORD: str = ""
 
