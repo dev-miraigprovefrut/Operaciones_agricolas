@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="es" class="nintanga-theme">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/Mirai1-nintanga.png" />
+    <link rel="apple-touch-icon" href="/Mirai1-nintanga.png" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="/manual-corporativo.css" />
+    <link rel="stylesheet" href="/MiraiCorporativo/mirai-base.css" />
+    <link rel="stylesheet" href="/MiraiCorporativo/mirai-componentes.css" />
+    <link rel="stylesheet" href="/MiraiCorporativo/mirai-layout.css" />
+    <link rel="stylesheet" href="/MiraiCorporativo/mirai-responsive.css" />
+    <link rel="stylesheet" href="/MiraiCorporativo/mirai-oscuro.css" />
+    <link rel="stylesheet" href="/boxicons/css/boxicons.min.css" />
+    <meta name="theme-color" content="#7b1fa2" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Op. Agrícolas" />
+    <title>Operaciones Agrícolas - Nintanga</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        // En desarrollo: desregistrar SW para evitar caché
+        if (location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+          navigator.serviceWorker.getRegistrations().then(regs => {
+            regs.forEach(r => r.unregister())
+          })
+          caches.keys().then(keys => keys.forEach(k => caches.delete(k)))
+        } else {
+          // En producción: registrar SW con auto-actualización
+          window.addEventListener('load', () => {
+            navigator.serviceWorker.register('/sw.js').then(reg => {
+              // Revisar actualizaciones cada 60 segundos
+              setInterval(() => reg.update(), 60000)
+              // Cuando hay nuevo SW, recargar la página
+              reg.addEventListener('updatefound', () => {
+                const newSW = reg.installing
+                if (newSW) {
+                  newSW.addEventListener('statechange', () => {
+                    if (newSW.state === 'activated') {
+                      window.location.reload()
+                    }
+                  })
+                }
+              })
+            }).catch(() => {})
+          })
+        }
+      }
+    </script>
+  </body>
+</html>

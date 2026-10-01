@@ -1,0 +1,75 @@
+# Deploy automatico del BACKEND a ECS Fargate en cada push a main que toque
+# backend/ (el frontend lo despliega Amplify por su cuenta con amplify.yml).
+# Credenciales: Settings > Secrets and variables > Actions
+# (AWS_ACCESS_KEY_ID y AWS_SECRET_ACCESS_KEY).
+name: Deploy backend a AWS ECS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'backend/**'
+      - 'ecs-task-definition.json'
+      - '.github/workflows/deploy-backend.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-backend-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  ECR_REPOSITORY: operacionesagricolas_master
+  ECS_CLUSTER: OperacionesAgricolas_master
+  ECS_SERVICE: OperacionesAgricolas_master
+  CONTAINER_NAME: backend
+  TASK_DEFINITION: ecs-task-definition.json
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login a ECR
+        id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build y push de la imagen
+        id: build
+        working-directory: backend
+        env:
+          REGISTRY: ${{ steps.ecr.outputs.registry }}
+          TAG: ${{ github.sha }}
+        run: |
+          docker build -t $REGISTRY/$ECR_REPOSITORY:$TAG -t $REGISTRY/$ECR_REPOSITORY:latest .
+          docker push $REGISTRY/$ECR_REPOSITORY:$TAG
+          docker push $REGISTRY/$ECR_REPOSITORY:latest
+          echo "image=$REGISTRY/$ECR_REPOSITORY:$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Nueva revision de la task definition
+        id: taskdef
+        uses: aws-actions/amazon-ecs-render-task-definition@v1
+        with:
+          task-definition: ${{ env.TASK_DEFINITION }}
+          container-name: ${{ env.CONTAINER_NAME }}
+          image: ${{ steps.build.outputs.image }}
+
+      - name: Deploy al servicio ECS
+        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
+        with:
+          task-definition: ${{ steps.taskdef.outputs.task-definition }}
+          cluster: ${{ env.ECS_CLUSTER }}
+          service: ${{ env.ECS_SERVICE }}
+          wait-for-service-stability: true
+          wait-for-minutes: 10

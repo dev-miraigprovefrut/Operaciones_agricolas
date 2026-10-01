@@ -1,0 +1,786 @@
+<!DOCTYPE html>
+<html lang="es" class="provefrut-theme">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MirAI Corporativo - Guia de Desarrollo</title>
+
+    <!-- CSS del Sistema de Diseno -->
+    <link rel="stylesheet" href="../manual-corporativo.css">
+    <link rel="stylesheet" href="mirai-base.css">
+    <link rel="stylesheet" href="mirai-componentes.css">
+    <link rel="stylesheet" href="mirai-layout.css">
+    <link rel="stylesheet" href="mirai-responsive.css">
+
+    <!-- Iconos BoxIcons -->
+    <link rel="stylesheet" href="../boxicons/css/boxicons.min.css">
+
+    <style>
+        /* === ESTILOS EXCLUSIVOS DE LA GUIA === */
+        .guia-nav {
+            position: sticky; top: 0; z-index: 100;
+            background: var(--color-bg-white);
+            border-bottom: 3px solid var(--color-primary);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            padding: 0.6rem 1.5rem;
+            display: flex; flex-wrap: wrap; gap: 0.4rem; align-items: center;
+        }
+        .guia-nav a {
+            padding: 0.4rem 0.75rem; border-radius: 6px;
+            font-size: 0.82rem; font-weight: 600; color: var(--color-text-primary);
+            text-decoration: none !important; transition: all 0.2s;
+            white-space: nowrap; display: inline-flex; align-items: center; gap: 4px;
+        }
+        .guia-nav a:hover {
+            background: var(--color-primary); color: white;
+            transform: translateY(-2px); box-shadow: 0 3px 8px rgba(0,0,0,0.15);
+        }
+        .guia-nav a i { font-size: 1rem; }
+
+        .guia-section { scroll-margin-top: 60px; margin-bottom: 2rem; }
+
+        .code-block {
+            background: #1a1a2e; color: #e0e0e0;
+            padding: 1.25rem 1.5rem; border-radius: 8px;
+            font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+            font-size: 0.82rem; overflow-x: auto;
+            margin: 0.75rem 0 1rem; line-height: 1.7;
+            white-space: pre; border-left: 4px solid var(--color-accent);
+        }
+        .code-inline {
+            background: var(--color-primary-soft); color: var(--color-primary);
+            padding: 2px 8px; border-radius: 4px;
+            font-family: "Consolas", monospace; font-size: 0.85em; font-weight: 600;
+        }
+
+        .demo-box {
+            padding: 1rem; background: var(--color-bg-light);
+            border-radius: 8px; border: 1px dashed var(--color-border);
+            display: flex; flex-wrap: wrap; gap: 0.75rem; align-items: center;
+            margin: 0.75rem 0;
+        }
+
+        .section-title {
+            display: flex; align-items: center; gap: 0.75rem;
+            font-size: 1.4rem; font-weight: 700; color: var(--color-primary);
+            margin: 0 0 1.25rem 0; padding-bottom: 0.75rem;
+            border-bottom: 3px solid var(--color-accent);
+        }
+        .section-title i { font-size: 1.5rem; }
+
+        .sub-title {
+            font-size: 1.05rem; font-weight: 700; color: var(--color-text-primary);
+            margin: 1.5rem 0 0.5rem; display: flex; align-items: center; gap: 0.5rem;
+        }
+        .sub-title::before {
+            content: ''; width: 4px; height: 18px;
+            background: var(--color-accent); border-radius: 2px; flex-shrink: 0;
+        }
+
+        .nota {
+            background: #fff8e1; border-left: 4px solid #ffc107;
+            padding: 0.75rem 1rem; border-radius: 0 8px 8px 0;
+            margin: 0.75rem 0; font-size: 0.88rem;
+            display: flex; align-items: flex-start; gap: 0.5rem;
+        }
+        .nota i { color: #f57f17; font-size: 1.2rem; flex-shrink: 0; margin-top: 1px; }
+
+        .color-palette { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; }
+        .color-swatch { display: flex; align-items: center; gap: 0.75rem; }
+        .color-swatch-box { width: 48px; height: 48px; border-radius: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.15); flex-shrink: 0; }
+        .color-swatch-info { display: flex; flex-direction: column; }
+        .color-swatch-info strong { font-size: 0.85rem; color: var(--color-text-primary); }
+        .color-swatch-info span { font-size: 0.72rem; color: var(--color-text-secondary); font-family: Consolas, monospace; }
+
+        .theme-switcher { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+        .theme-btn {
+            padding: 0.5rem 1rem; border: 2px solid var(--color-border);
+            border-radius: 8px; cursor: pointer; font-weight: 600;
+            font-size: 0.85rem; transition: all 0.2s; background: white;
+            font-family: var(--font-family-sans); display: inline-flex; align-items: center; gap: 6px;
+        }
+        .theme-btn:hover { transform: translateY(-2px); box-shadow: 0 3px 8px rgba(0,0,0,0.15); }
+
+        @media (max-width: 768px) {
+            .guia-nav { padding: 0.5rem 0.75rem; gap: 0.25rem; }
+            .guia-nav a { font-size: 0.72rem; padding: 0.3rem 0.5rem; }
+        }
+    </style>
+</head>
+<body>
+<div class="app-shell">
+
+    <!-- HEADER -->
+    <header class="app-header">
+        <div class="app-header-container">
+            <div class="header-logo">
+                <i class='bx bx-book-content' style="font-size: 2.5rem; color: white;"></i>
+                <span class="header-logo-text" style="color: white;">MirAI Corporativo</span>
+            </div>
+            <div class="header-right">
+                <div class="header-user">
+                    <span class="header-user-name">Guia de Desarrollo v1.0</span>
+                    <span class="header-user-email">Sistema de Diseno CSS</span>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- NAV INDICE -->
+    <nav class="guia-nav">
+        <a href="#archivos"><i class='bx bx-folder'></i> Archivos</a>
+        <a href="#temas"><i class='bx bx-palette'></i> Temas</a>
+        <a href="#colores"><i class='bx bx-color'></i> Colores</a>
+        <a href="#tipografia"><i class='bx bx-font'></i> Tipografia</a>
+        <a href="#botones"><i class='bx bx-pointer'></i> Botones</a>
+        <a href="#formularios"><i class='bx bx-edit'></i> Formularios</a>
+        <a href="#tablas"><i class='bx bx-table'></i> Tablas</a>
+        <a href="#cards"><i class='bx bx-card'></i> Cards</a>
+        <a href="#badges"><i class='bx bx-badge'></i> Badges</a>
+        <a href="#alertas"><i class='bx bx-bell'></i> Alertas</a>
+        <a href="#layout"><i class='bx bx-layout'></i> Layout</a>
+        <a href="#drawer"><i class='bx bx-dock-right'></i> Drawer</a>
+        <a href="#nav"><i class='bx bx-menu'></i> Nav</a>
+        <a href="#responsive"><i class='bx bx-devices'></i> Responsive</a>
+        <a href="#utilidades"><i class='bx bx-wrench'></i> Utilidades</a>
+    </nav>
+
+    <!-- CONTENIDO -->
+    <main class="app-main">
+        <div class="page-container" style="max-width: 1000px; margin: 0 auto;">
+
+            <!-- CAMBIAR TEMA -->
+            <div class="card card-left-border" style="margin-bottom: 1.25rem;">
+                <div class="card-body" style="padding: 0.75rem 1.25rem;">
+                    <div style="display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;">
+                        <span style="font-weight: 700; color: var(--color-primary); font-size: 0.9rem;">
+                            <i class='bx bxs-palette'></i> Cambiar tema:
+                        </span>
+                        <div class="theme-switcher">
+                            <button class="theme-btn" onclick="cambiarTema('provefrut-theme')" style="border-color: #285d2f; color: #285d2f;">
+                                <i class='bx bxs-leaf'></i> Provefrut
+                            </button>
+                            <button class="theme-btn" onclick="cambiarTema('procongelados-theme')" style="border-color: #2e247a; color: #2e247a;">
+                                <i class='bx bxs-package'></i> Procongelados
+                            </button>
+                            <button class="theme-btn" onclick="cambiarTema('nintanga-theme')" style="border-color: #712d7d; color: #712d7d;">
+                                <i class='bx bxs-star'></i> Nintanga
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ======== ARCHIVOS ======== -->
+            <div class="guia-section" id="archivos">
+                <div class="card card-primary">
+                    <div class="card-body">
+                        <h2 class="section-title"><i class='bx bxs-folder-open'></i> Estructura de Archivos</h2>
+                        <div class="tabla-container">
+                            <table class="tabla">
+                                <thead><tr><th>Archivo</th><th>Contenido</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="tabla-nombre">mirai-base.css</td><td>Variables CSS, reset, temas (Provefrut/Procongelados/Nintanga), tipografia</td></tr>
+                                    <tr><td class="tabla-nombre">mirai-componentes.css</td><td>Botones, tablas, cards, badges, formularios, alertas, timeline, stepper, tags</td></tr>
+                                    <tr><td class="tabla-nombre">mirai-layout.css</td><td>Header, navegacion, drawer, sidebar mobile, dashboard grids, page container</td></tr>
+                                    <tr><td class="tabla-nombre">mirai-responsive.css</td><td>Breakpoints (1024, 768, 480), utilidades flex/grid, animaciones, scrollbar</td></tr>
+                                    <tr><td class="tabla-nombre">plantilla.html</td><td>Plantilla completa con header + nav + menu hamburguesa + drawers + JS</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="sub-title">Orden de carga</div>
+<div class="code-block">&lt;link rel="stylesheet" href="../manual-corporativo.css"&gt;
+&lt;link rel="stylesheet" href="mirai-base.css"&gt;
+&lt;link rel="stylesheet" href="mirai-componentes.css"&gt;
+&lt;link rel="stylesheet" href="mirai-layout.css"&gt;
+&lt;link rel="stylesheet" href="mirai-responsive.css"&gt;
+&lt;link rel="stylesheet" href="../boxicons/css/boxicons.min.css"&gt;</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ======== TEMAS ======== -->
+            <div class="guia-section" id="temas">
+                <div class="card card-primary">
+                    <div class="card-body">
+                        <h2 class="section-title"><i class='bx bxs-palette'></i> Temas</h2>
+                        <p>Agregar la clase del tema al <span class="code-inline">&lt;html&gt;</span> o al <span class="code-inline">&lt;body&gt;</span>:</p>
+<div class="code-block">&lt;html class="provefrut-theme"&gt;      &lt;!-- Verde --&gt;
+&lt;html class="procongelados-theme"&gt;  &lt;!-- Azul/Morado --&gt;
+&lt;html class="nintanga-theme"&gt;       &lt;!-- Morado/Rosa --&gt;</div>
+                        <div class="nota">
+                            <i class='bx bxs-bulb'></i>
+                            <div>Todos los componentes usan <span class="code-inline">var(--color-primary)</span> y <span class="code-inline">var(--color-accent)</span>, por lo que cambian automaticamente al cambiar el tema.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ======== COLORES ======== -->
+            <div class="guia-section" id="colores">
+                <div class="card card-primary">
+                    <div class="card-body">
+                        <h2 class="section-title"><i class='bx bxs-color'></i> Variables de Color</h2>
+
+                        <div class="sub-title">Colores del tema activo</div>
+                        <div class="color-palette" style="margin-bottom: 1.5rem;">
+                            <div class="color-swatch"><div class="color-swatch-box" style="background:var(--color-primary)"></div><div class="color-swatch-info"><strong>Primary</strong><span>--color-primary</span></div></div>
+                            <div class="color-swatch"><div class="color-swatch-box" style="background:var(--color-accent)"></div><div class="color-swatch-info"><strong>Accent</strong><span>--color-accent</span></div></div>
+                            <div class="color-swatch"><div class="color-swatch-box" style="background:var(--color-accent-2)"></div><div class="color-swatch-info"><strong>Accent 2</strong><span>--color-accent-2</span></div></div>
+                            <div class="color-swatch"><div class="color-swatch-box" style="background:var(--color-bg-dark)"></div><div class="color-swatch-info"><strong>BG Dark</strong><span>--color-bg-dark</span></div></div>
+                            <div class="color-swatch"><div class="color-swatch-box" style="background:var(--color-primary-hover)"></div><div class="color-swatch-info"><strong>Hover</strong><span>--color-primary-hover</span></div></div>
+                        </div>
+
+                        <div class="sub-title">Colores semanticos (fijos)</div>
+                        <div class="color-palette">
+                            <div class="color-swatch"><div class="color-swatch-box" style="background:#28a745"></div><div class="color-swatch-info"><strong>Success</strong><span>--color-success</span></div></div>
+                            <div class="color-swatch"><div class="color-swatch-box" style="background:#dc3545"></div><div class="color-swatch-info"><strong>Danger</strong><span>--color-danger</span></div></div>
+                            <div class="color-swatch"><div class="color-swatch-box" style="background:#ffc107"></div><div class="color-swatch-info"><strong>Warning</strong><span>--color-warning</span></div></div>
+                            <div class="color-swatch"><div class="color-swatch-box" style="background:#17a2b8"></div><div class="color-swatch-info"><strong>Info</strong><span>--color-info</span></div></div>
+                        </div>
+
+                        <div class="sub-title">Uso en CSS</div>
+<div class="code-block">.mi-componente {
+    color: var(--color-primary);
+    background: var(--color-bg-white);
+    border: 1px solid var(--color-border);
+    box-shadow: var(--shadow-sm);
+}</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ======== TIPOGRAFIA ======== -->
+            <div class="guia-section" id="tipografia">
+                <div class="card card-primary">
+                    <div class="card-body">
+                        <h2 class="section-title"><i class='bx bxs-font-family'></i> Tipografia</h2>
+                        <p>Fuente: <strong>Open Sans</strong> (400, 600, 700)</p>
+                        <div class="demo-box" style="flex-direction: column; align-items: flex-start;">
+                            <h1 style="margin:0">h1 - Titulo Principal (2.25rem)</h1>
+                            <h2 style="margin:0">h2 - Subtitulo (1.75rem)</h2>
+                            <h3 style="margin:0">h3 - Seccion (1.25rem)</h3>
+                            <h4 style="margin:0">h4 - Subseccion (1.1rem)</h4>
+                            <p style="margin:0">Parrafo normal (1rem)</p>
+                            <small>Texto small (0.875rem)</small>
+                        </div>
+                        <div class="sub-title">Clases de texto</div>
+<div class="code-block">&lt;span class="text-primary"&gt;Primario&lt;/span&gt;
+&lt;span class="text-accent"&gt;Accent&lt;/span&gt;
+&lt;span class="text-muted"&gt;Secundario&lt;/span&gt;
+&lt;span class="text-success"&gt;Exito&lt;/span&gt;
+&lt;span class="text-danger"&gt;Error&lt;/span&gt;
+&lt;span class="text-uppercase text-bold"&gt;Mayusculas negrita&lt;/span&gt;</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ======== BOTONES ======== -->
+            <div class="guia-section" id="botones">
+                <div class="card card-primary">
+                    <div class="card-body">
+                        <h2 class="section-title"><i class='bx bxs-hand-up'></i> Botones</h2>
+
+                        <div class="sub-title">Variantes</div>
+                        <div class="demo-box">
+                            <button class="btn btn-primary"><i class='bx bx-check'></i> Primary</button>
+                            <button class="btn btn-accent"><i class='bx bx-star'></i> Accent</button>
+                            <button class="btn btn-success"><i class='bx bx-check-circle'></i> Success</button>
+                            <button class="btn btn-danger"><i class='bx bx-x-circle'></i> Danger</button>
+                            <button class="btn btn-warning"><i class='bx bx-error'></i> Warning</button>
+                            <button class="btn btn-outline"><i class='bx bx-edit'></i> Outline</button>
+                            <button class="btn btn-secondary"><i class='bx bx-undo'></i> Secondary</button>
+                        </div>
+<div class="code-block">&lt;button class="btn btn-primary"&gt;&lt;i class='bx bx-check'&gt;&lt;/i&gt; Primary&lt;/button&gt;
+&lt;button class="btn btn-accent"&gt;Accent&lt;/button&gt;
+&lt;button class="btn btn-success"&gt;Success&lt;/button&gt;
+&lt;button class="btn btn-danger"&gt;Danger&lt;/button&gt;
+&lt;button class="btn btn-outline"&gt;Outline&lt;/button&gt;</div>
+
+                        <div class="sub-title">Tamanos</div>
+                        <div class="demo-box">
+                            <button class="btn btn-primary btn-sm">btn-sm</button>
+                            <button class="btn btn-primary">Normal</button>
+                            <button class="btn btn-primary btn-lg">btn-lg</button>
+                        </div>
+
+                        <div class="sub-title">Botones de accion (tablas)</div>
+                        <div class="demo-box">
+                            <button class="btn-action" style="background:var(--color-primary)"><i class='bx bx-show'></i></button>
+                            <button class="btn-action" style="background:var(--color-accent)"><i class='bx bx-edit'></i></button>
+                            <button class="btn-action" style="background:var(--color-danger)"><i class='bx bx-trash'></i></button>
+                            <button class="btn-action" style="background:var(--color-info)"><i class='bx bx-printer'></i></button>
+                        </div>
+<div class="code-block">&lt;button class="btn-action" style="background:var(--color-primary)"&gt;
+    &lt;i class='bx bx-show'&gt;&lt;/i&gt;
+&lt;/button&gt;</div>
+
+                        <div class="sub-title">Botones icono (FAB)</div>
+                        <div class="demo-box">
+                            <button class="btn btn-icon btn-primary"><i class='bx bx-plus'></i></button>
+                            <button class="btn btn-icon btn-accent"><i class='bx bx-edit'></i></button>
+                            <button class="btn btn-icon-sm btn-danger"><i class='bx bx-trash'></i></button>
+                        </div>
+<div class="code-block">&lt;button class="btn btn-icon btn-primary"&gt;&lt;i class='bx bx-plus'&gt;&lt;/i&gt;&lt;/button&gt;
+&lt;button class="btn btn-icon-sm btn-danger"&gt;&lt;i class='bx bx-trash'&gt;&lt;/i&gt;&lt;/button&gt;</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ======== FORMULARIOS ======== -->
+            <div class="guia-section" id="formularios">
+                <div class="card card-primary">
+                    <div class="card-body">
+                        <h2 class="section-title"><i class='bx bxs-edit'></i> Formularios</h2>
+                        <div style="background:var(--color-bg-light); padding:1.25rem; border-radius:8px; margin-bottom:1rem;">
+                            <div class="form-row">
+                                <div class="form-group"><label class="form-label">Nombre <span class="required">*</span></label><input type="text" class="form-control" placeholder="Nombre del producto"></div>
+                                <div class="form-group"><label class="form-label">SKU</label><input type="text" class="form-control" placeholder="Codigo SKU"></div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group"><label class="form-label">Categoria</label><select class="form-control"><option>Seleccionar...</option><option>Repuestos</option></select></div>
+                                <div class="form-group"><label class="form-label">Fecha</label><input type="date" class="form-control"></div>
+                            </div>
+                            <div class="form-group"><label class="form-label">Descripcion</label><textarea class="form-control" rows="2" placeholder="Escriba aqui..."></textarea></div>
+                            <label class="checkbox-label"><input type="checkbox"> <span>Requiere certificacion</span></label>
+                        </div>
+<div class="code-block">&lt;div class="form-row"&gt;
+    &lt;div class="form-group"&gt;
+        &lt;label class="form-label"&gt;Campo &lt;span class="required"&gt;*&lt;/span&gt;&lt;/label&gt;
+        &lt;input type="text" class="form-control" placeholder="..."&gt;
+    &lt;/div&gt;
+    &lt;div class="form-group"&gt;
+        &lt;label class="form-label"&gt;Select&lt;/label&gt;
+        &lt;select class="form-control"&gt;...&lt;/select&gt;
+    &lt;/div&gt;
+&lt;/div&gt;</div>
+
+                        <div class="sub-title">Busqueda con icono</div>
+                        <div class="search-input-wrapper" style="max-width:400px;">
+                            <i class='bx bx-search'></i>
+                            <input type="text" class="form-control" placeholder="Buscar...">
+                        </div>
+<div class="code-block">&lt;div class="search-input-wrapper"&gt;
+    &lt;i class='bx bx-search'&gt;&lt;/i&gt;
+    &lt;input type="text" class="form-control" placeholder="Buscar..."&gt;
+&lt;/div&gt;</div>
+
+                        <div class="sub-title">Validacion visual</div>
+                        <div style="max-width:400px; display:flex; flex-direction:column; gap:0.5rem;">
+                            <input type="text" class="form-control is-valid" value="Campo valido">
+                            <input type="text" class="form-control is-invalid" value="Campo con error">
+                        </div>
+<div class="code-block">&lt;input class="form-control is-valid"&gt;   &lt;!-- borde verde izquierdo --&gt;
+&lt;input class="form-control is-invalid"&gt; &lt;!-- borde rojo izquierdo --&gt;</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ======== TABLAS ======== -->
+            <div class="guia-section" id="tablas">
+                <div class="card card-primary">
+                    <div class="card-body">
+                        <h2 class="section-title"><i class='bx bxs-spreadsheet'></i> Tablas</h2>
+                        <div class="tabla-container">
+                            <table class="tabla">
+                                <thead><tr><th>#</th><th>Producto</th><th class="col-hide-700">Area</th><th>Estado</th><th class="col-hide-900">Precio</th><th class="tabla-centro">Acciones</th></tr></thead>
+                                <tbody>
+                                    <tr class="clickeable"><td>1</td><td class="tabla-nombre">Aceite Hidraulico ISO 68</td><td class="col-hide-700">Mantenimiento</td><td><span class="badge badge-activo">Activo</span></td><td class="col-hide-900 tabla-numero">$125.50</td><td class="tabla-centro"><button class="btn-action" style="background:var(--color-primary)"><i class='bx bx-show'></i></button></td></tr>
+                                    <tr class="clickeable"><td>2</td><td class="tabla-nombre">Filtro de Aire K&N</td><td class="col-hide-700">Produccion</td><td><span class="badge badge-pendiente">Pendiente</span></td><td class="col-hide-900 tabla-numero">$45.00</td><td class="tabla-centro"><button class="btn-action" style="background:var(--color-primary)"><i class='bx bx-show'></i></button></td></tr>
+                                    <tr class="clickeable"><td>3</td><td class="tabla-nombre">Rodamiento SKF 6205</td><td class="col-hide-700">Taller</td><td><span class="badge badge-aprobado">Aprobado</span></td><td class="col-hide-900 tabla-numero">$18.75</td><td class="tabla-centro"><button class="btn-action" style="background:var(--color-primary)"><i class='bx bx-show'></i></button></td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+<div class="code-block">&lt;div class="tabla-container"&gt;
+    &lt;table class="tabla"&gt;
+        &lt;thead&gt;&lt;tr&gt;&lt;th&gt;#&lt;/th&gt;&lt;th&gt;Producto&lt;/th&gt;&lt;th class="col-hide-700"&gt;Area&lt;/th&gt;...&lt;/tr&gt;&lt;/thead&gt;
+        &lt;tbody&gt;
+            &lt;tr class="clickeable"&gt;
+                &lt;td&gt;1&lt;/td&gt;
+                &lt;td class="tabla-nombre"&gt;Aceite Hidraulico&lt;/td&gt;
+                &lt;td class="col-hide-700"&gt;Mantenimiento&lt;/td&gt;
+                &lt;td&gt;&lt;span class="badge badge-activo"&gt;Activo&lt;/span&gt;&lt;/td&gt;
+                &lt;td class="tabla-centro"&gt;...acciones...&lt;/td&gt;
+            &lt;/tr&gt;
+        &lt;/tbody&gt;
+    &lt;/table&gt;
+&lt;/div&gt;</div>
+
+                        <div class="sub-title">Columnas responsive</div>
+                        <div class="tabla-container" style="max-width:450px;">
+                            <table class="tabla tabla-compacta">
+                                <thead><tr><th>Clase</th><th>Se oculta en</th></tr></thead>
+                                <tbody>
+                                    <tr><td><span class="code-inline">col-hide-1100</span></td><td>&lt; 1100px</td></tr>
+                                    <tr><td><span class="code-inline">col-hide-900</span></td><td>&lt; 900px</td></tr>
+                                    <tr><td><span class="code-inline">col-hide-700</span></td><td>&lt; 700px</td></tr>
+                                    <tr><td><span class="code-inline">col-hide-520</span></td><td>&lt; 520px</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ======== CARDS ======== -->
+            <div class="guia-section" id="cards">
+                <div class="card card-primary">
+                    <div class="card-body">
+                        <h2 class="section-title"><i class='bx bxs-card'></i> Cards</h2>
+                        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(250px, 1fr)); gap:1rem; margin-bottom:1rem;">
+                            <div class="card card-primary"><div class="card-header"><i class='bx bxs-package'></i> Card Primary</div><div class="card-body"><p style="margin:0">Borde superior primario</p></div><div class="card-footer">Footer</div></div>
+                            <div class="card"><div class="card-header-dark"><i class='bx bxs-bar-chart-alt-2'></i> Header Dark</div><div class="card-body"><p style="margin:0">Header fondo primario</p></div></div>
+                            <div class="card card-left-border"><div class="card-body"><h4 style="color:var(--color-primary);margin-bottom:0.5rem"><i class='bx bx-info-circle'></i> Left Border</h4><p style="margin:0">Borde izquierdo primario</p></div></div>
+                        </div>
+<div class="code-block">&lt;div class="card card-primary"&gt;
+    &lt;div class="card-header"&gt;&lt;i class='bx bxs-package'&gt;&lt;/i&gt; Titulo&lt;/div&gt;
+    &lt;div class="card-body"&gt;Contenido&lt;/div&gt;
+    &lt;div class="card-footer"&gt;Pie (opcional)&lt;/div&gt;
+&lt;/div&gt;
+
+&lt;!-- Variantes: card-primary | card-accent | card-left-border --&gt;
+&lt;!-- Header oscuro: card-header-dark --&gt;</div>
+
+                        <div class="sub-title">Stats (Dashboard)</div>
+                        <div class="stats-grid" style="margin-bottom:1rem;">
+                            <div class="stat-block"><div class="stat-number">156</div><div class="stat-label">Solicitudes</div></div>
+                            <div class="stat-block"><div class="stat-number">42</div><div class="stat-label">Pendientes</div></div>
+                            <div class="stat-block"><div class="stat-number">98</div><div class="stat-label">Aprobadas</div></div>
+                            <div class="stat-block"><div class="stat-number">$45.2K</div><div class="stat-label">Total</div></div>
+                        </div>
+<div class="code-block">&lt;div class="stats-grid"&gt;
+    &lt;div class="stat-block"&gt;
+        &lt;div class="stat-number"&gt;156&lt;/div&gt;
+        &lt;div class="stat-label"&gt;Solicitudes&lt;/div&gt;
+    &lt;/div&gt;
+&lt;/div&gt;</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ======== BADGES ======== -->
+            <div class="guia-section" id="badges">
+                <div class="card card-primary">
+                    <div class="card-body">
+                        <h2 class="section-title"><i class='bx bxs-badge'></i> Badges de Estado</h2>
+                        <div class="demo-box">
+                            <span class="badge badge-activo">Activo</span>
+                            <span class="badge badge-inactivo">Inactivo</span>
+                            <span class="badge badge-pendiente">Pendiente</span>
+                            <span class="badge badge-aprobado">Aprobado</span>
+                            <span class="badge badge-rechazado">Rechazado</span>
+                            <span class="badge badge-preliminar">Preliminar</span>
+                            <span class="badge badge-enviado">Enviado</span>
+                            <span class="badge badge-cotizando">Cotizando</span>
+                            <span class="badge badge-cotizado">Cotizado</span>
+                            <span class="badge badge-solicitado">Solicitado</span>
+                            <span class="badge badge-generada">Generada</span>
+                            <span class="badge badge-comprado">Comprado</span>
+                            <span class="badge badge-recibido">Recibido</span>
+                            <span class="badge badge-revision">Revision</span>
+                            <span class="badge badge-trasladando">Trasladando</span>
+                            <span class="badge badge-descontinuado">Descontinuado</span>
+                        </div>
+                        <div class="sub-title">Badges de aprobacion multinivel</div>
+                        <div class="demo-box">
+                            <span class="badge badge-aprobado-jd">Aprobado JD</span>
+                            <span class="badge badge-aprobado-gg">Aprobado GG</span>
+                            <span class="badge badge-oc-aprobada">OC Aprobada</span>
+                            <span class="badge badge-oc-rechazada">OC Rechazada</span>
+                        </div>
+<div class="code-block">&lt;span class="badge badge-activo"&gt;Activo&lt;/span&gt;
+&lt;span class="badge badge-pendiente"&gt;Pendiente&lt;/span&gt;
+&lt;span class="badge badge-aprobado"&gt;Aprobado&lt;/span&gt;
+&lt;span class="badge badge-rechazado"&gt;Rechazado&lt;/span&gt;
+&lt;span class="badge badge-aprobado-jd"&gt;Aprobado JD&lt;/span&gt;
+&lt;span class="badge badge-oc-aprobada"&gt;OC Aprobada&lt;/span&gt;</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ======== ALERTAS ======== -->
+            <div class="guia-section" id="alertas">
+                <div class="card card-primary">
+                    <div class="card-body">
+                        <h2 class="section-title"><i class='bx bxs-bell'></i> Alertas</h2>
+                        <div style="display:flex; flex-direction:column; gap:0.5rem; margin-bottom:1rem;">
+                            <div class="alert alert-success"><i class='bx bx-check-circle'></i> Solicitud aprobada correctamente.</div>
+                            <div class="alert alert-danger"><i class='bx bx-x-circle'></i> Error al procesar la solicitud.</div>
+                            <div class="alert alert-warning"><i class='bx bx-error'></i> La cotizacion vence en 3 dias.</div>
+                            <div class="alert alert-info"><i class='bx bx-info-circle'></i> Se encontraron 15 productos.</div>
+                        </div>
+<div class="code-block">&lt;div class="alert alert-success"&gt;
+    &lt;i class='bx bx-check-circle'&gt;&lt;/i&gt; Mensaje exitoso
+&lt;/div&gt;
+&lt;!-- Variantes: alert-success | alert-danger | alert-warning | alert-info --&gt;</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ======== LAYOUT ======== -->
+            <div class="guia-section" id="layout">
+                <div class="card card-primary">
+                    <div class="card-body">
+                        <h2 class="section-title"><i class='bx bxs-layout'></i> Layout y Estructura</h2>
+<div class="code-block">&lt;html class="provefrut-theme"&gt;
+&lt;body&gt;
+&lt;div class="app-shell"&gt;
+    &lt;header class="app-header"&gt;...&lt;/header&gt;
+    &lt;nav class="app-nav"&gt;...&lt;/nav&gt;
+    &lt;main class="app-main"&gt;
+        &lt;div class="page-container"&gt;
+            &lt;div class="page-header"&gt;
+                &lt;div&gt;
+                    &lt;h1&gt;&lt;i class='bx bxs-cart'&gt;&lt;/i&gt; Titulo&lt;/h1&gt;
+                    &lt;p class="page-subtitle"&gt;Descripcion&lt;/p&gt;
+                &lt;/div&gt;
+                &lt;div class="page-actions"&gt;
+                    &lt;button class="btn btn-primary"&gt;Accion&lt;/button&gt;
+                &lt;/div&gt;
+            &lt;/div&gt;
+            &lt;!-- contenido aqui --&gt;
+        &lt;/div&gt;
+    &lt;/main&gt;
+&lt;/div&gt;
+&lt;/body&gt;</div>
+
+                        <div class="sub-title">Dashboard grids</div>
+<div class="code-block">&lt;div class="dashboard-row-2col"&gt;...&lt;/div&gt;   &lt;!-- 1fr + 350px --&gt;
+&lt;div class="dashboard-row-3col"&gt;...&lt;/div&gt;   &lt;!-- 3 columnas iguales --&gt;
+&lt;div class="dashboard-row-2equal"&gt;...&lt;/div&gt; &lt;!-- 2 columnas iguales --&gt;</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ======== DRAWER ======== -->
+            <div class="guia-section" id="drawer">
+                <div class="card card-primary">
+                    <div class="card-body">
+                        <h2 class="section-title"><i class='bx bxs-dock-right'></i> Drawer (Panel Lateral)</h2>
+<div class="code-block">&lt;div class="drawer-overlay" id="drawerOverlay"&gt;&lt;/div&gt;
+&lt;div class="drawer" id="drawerPanel"&gt;
+    &lt;div class="drawer-header"&gt;
+        &lt;div class="drawer-header-top"&gt;
+            &lt;h2&gt;&lt;i class='bx bxs-package'&gt;&lt;/i&gt; Detalle&lt;/h2&gt;
+            &lt;button class="drawer-close"&gt;&lt;i class='bx bx-x'&gt;&lt;/i&gt;&lt;/button&gt;
+        &lt;/div&gt;
+        &lt;div class="drawer-summary"&gt;...resumen...&lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class="drawer-content"&gt;
+        &lt;div class="drawer-section"&gt;
+            &lt;h3&gt;&lt;i class='bx bx-info-circle'&gt;&lt;/i&gt; Seccion&lt;/h3&gt;
+            &lt;div class="detail-grid"&gt;
+                &lt;div class="detail-field"&gt;
+                    &lt;label&gt;Campo&lt;/label&gt;
+                    &lt;span&gt;Valor&lt;/span&gt;
+                &lt;/div&gt;
+            &lt;/div&gt;
+        &lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class="drawer-footer"&gt;
+        &lt;button class="btn btn-secondary"&gt;Cerrar&lt;/button&gt;
+        &lt;button class="btn btn-primary"&gt;Guardar&lt;/button&gt;
+    &lt;/div&gt;
+&lt;/div&gt;</div>
+                        <div class="nota">
+                            <i class='bx bxs-bulb'></i>
+                            <div><strong>Drawer izquierdo:</strong> Agregar clase <span class="code-inline">drawer-left</span>. Ancho: 60% desktop, 100% mobile. Ver plantilla.html para ejemplo completo con ambos drawers.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ======== NAV ======== -->
+            <div class="guia-section" id="nav">
+                <div class="card card-primary">
+                    <div class="card-body">
+                        <h2 class="section-title"><i class='bx bxs-navigation'></i> Navegacion y Menu Mobile</h2>
+                        <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.75rem; margin:1rem 0;">
+                            <div class="alert alert-info" style="margin:0;"><i class='bx bx-desktop'></i><div><strong>Desktop (> 768px)</strong><br>Barra horizontal + dropdowns</div></div>
+                            <div class="alert alert-warning" style="margin:0;"><i class='bx bx-mobile-alt'></i><div><strong>Mobile (&lt;= 768px)</strong><br>Sidebar izquierdo + hamburguesa</div></div>
+                        </div>
+<div class="code-block">&lt;nav class="app-nav"&gt;
+  &lt;div class="nav-container"&gt;
+    &lt;!-- Boton hamburguesa (solo mobile) --&gt;
+    &lt;button class="mobile-menu-btn" id="mobileMenuBtn"&gt;
+        &lt;i class='bx bx-menu'&gt;&lt;/i&gt;
+    &lt;/button&gt;
+
+    &lt;!-- Overlay oscuro --&gt;
+    &lt;div class="mobile-overlay" id="mobileOverlay"&gt;&lt;/div&gt;
+
+    &lt;!-- Nav items (sidebar en mobile) --&gt;
+    &lt;ul class="nav-items" id="navItems"&gt;
+        &lt;li class="sidebar-header"&gt;...&lt;/li&gt;       &lt;!-- Solo mobile --&gt;
+        &lt;li class="sidebar-user-section"&gt;...&lt;/li&gt;  &lt;!-- Solo mobile --&gt;
+
+        &lt;!-- Item sin submenu --&gt;
+        &lt;li class="nav-item"&gt;
+            &lt;a href="/" class="nav-button active"&gt;
+                &lt;i class='bx bxs-home'&gt;&lt;/i&gt;
+                &lt;span&gt;Inicio&lt;/span&gt;
+            &lt;/a&gt;
+        &lt;/li&gt;
+
+        &lt;!-- Item con submenu --&gt;
+        &lt;li class="nav-item"&gt;
+            &lt;button class="nav-button" onclick="toggleSubmenu(this)"&gt;
+                &lt;i class='bx bxs-cart'&gt;&lt;/i&gt;
+                &lt;span&gt;Compras&lt;/span&gt;
+                &lt;i class='bx bx-chevron-down arrow'&gt;&lt;/i&gt;
+            &lt;/button&gt;
+            &lt;div class="nav-submenu" style="display:none"&gt;
+                &lt;ul class="nav-submenu-items"&gt;
+                    &lt;li&gt;&lt;a href="/solicitudes/" class="nav-submenu-link"&gt;
+                        &lt;i class='bx bx-list-ul'&gt;&lt;/i&gt; Solicitudes
+                    &lt;/a&gt;&lt;/li&gt;
+                &lt;/ul&gt;
+            &lt;/div&gt;
+        &lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/div&gt;
+&lt;/nav&gt;</div>
+                        <div class="nota">
+                            <i class='bx bxs-bulb'></i>
+                            <div>Ver <strong>plantilla.html</strong> para el ejemplo completo con todo el JS del menu mobile (toggleMobileMenu, cerrarMobileMenu, toggleSubmenu).</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ======== RESPONSIVE ======== -->
+            <div class="guia-section" id="responsive">
+                <div class="card card-primary">
+                    <div class="card-body">
+                        <h2 class="section-title"><i class='bx bxs-devices'></i> Responsive</h2>
+                        <div class="tabla-container" style="max-width:450px;">
+                            <table class="tabla tabla-compacta">
+                                <thead><tr><th>Breakpoint</th><th>Rango</th></tr></thead>
+                                <tbody>
+                                    <tr><td class="tabla-nombre">Desktop</td><td>&gt; 1024px</td></tr>
+                                    <tr><td class="tabla-nombre">Tablet</td><td>769px - 1024px</td></tr>
+                                    <tr><td class="tabla-nombre">Mobile</td><td>&lt;= 768px</td></tr>
+                                    <tr><td class="tabla-nombre">Mobile Small</td><td>&lt;= 480px</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <div class="sub-title">Clases de visibilidad</div>
+                        <div class="tabla-container" style="max-width:550px;">
+                            <table class="tabla tabla-compacta">
+                                <thead><tr><th>Clase</th><th>Comportamiento</th></tr></thead>
+                                <tbody>
+                                    <tr><td><span class="code-inline">hide-mobile</span></td><td>Oculto en &lt;= 768px</td></tr>
+                                    <tr><td><span class="code-inline">hide-tablet</span></td><td>Oculto en 769-1024px</td></tr>
+                                    <tr><td><span class="code-inline">only-desktop</span></td><td>Solo &gt; 1024px</td></tr>
+                                    <tr><td><span class="code-inline">only-mobile</span></td><td>Solo &lt;= 768px</td></tr>
+                                    <tr><td><span class="code-inline">btn-responsive-icon</span></td><td>Solo icono en mobile</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ======== UTILIDADES ======== -->
+            <div class="guia-section" id="utilidades">
+                <div class="card card-primary">
+                    <div class="card-body">
+                        <h2 class="section-title"><i class='bx bxs-wrench'></i> Utilidades CSS</h2>
+                        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(280px, 1fr)); gap:1rem;">
+                            <div>
+                                <div class="sub-title">Flex</div>
+<div class="code-block">d-flex | d-inline-flex
+flex-column | flex-wrap | flex-1
+align-items-center | align-items-start
+justify-content-center
+justify-content-between
+justify-content-end
+gap-xs | gap-sm | gap-md | gap-base | gap-lg</div>
+                            </div>
+                            <div>
+                                <div class="sub-title">Grid</div>
+<div class="code-block">d-grid
+grid-2 | grid-3 | grid-4
+grid-auto  /* auto-fit minmax(250px) */</div>
+                                <div class="sub-title">Espaciado</div>
+<div class="code-block">m-0 | mt-sm | mt-base | mt-lg
+mb-sm | mb-base | mb-lg
+p-0 | p-sm | p-base | p-lg
+w-100</div>
+                            </div>
+                            <div>
+                                <div class="sub-title">Otros</div>
+<div class="code-block">hidden      /* display: none !important */
+clickeable  /* cursor: pointer */</div>
+                                <div class="sub-title">Animaciones</div>
+<div class="code-block">animate-fadeIn
+animate-slideDown
+animate-slideRight</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ======== OTROS ======== -->
+            <div class="guia-section">
+                <div class="card card-primary">
+                    <div class="card-body">
+                        <h2 class="section-title"><i class='bx bxs-extension'></i> Otros Componentes</h2>
+
+                        <div class="sub-title">Tags</div>
+                        <div class="demo-box">
+                            <span class="tag">Repuesto <button class="tag-remove">&times;</button></span>
+                            <span class="tag">Urgente <button class="tag-remove">&times;</button></span>
+                            <span class="tag">Importacion <button class="tag-remove">&times;</button></span>
+                        </div>
+
+                        <div class="sub-title">Stepper</div>
+<div class="code-block">&lt;div class="stepper"&gt;
+    &lt;div class="stepper-paso-wrapper"&gt;
+        &lt;div class="stepper-paso-contenido"&gt;
+            &lt;div class="stepper-icono" style="background:var(--color-success); color:white"&gt;
+                &lt;i class='bx bx-check'&gt;&lt;/i&gt;
+            &lt;/div&gt;
+            &lt;div class="stepper-label"&gt;Solicitud&lt;/div&gt;
+        &lt;/div&gt;
+    &lt;/div&gt;
+    &lt;div class="stepper-linea" style="background:var(--color-success)"&gt;&lt;/div&gt;
+    &lt;!-- mas pasos... --&gt;
+&lt;/div&gt;</div>
+
+                        <div class="sub-title">Timeline</div>
+<div class="code-block">&lt;div class="timeline"&gt;
+    &lt;div class="timeline-evento"&gt;
+        &lt;div class="timeline-icono" style="background:var(--color-success)"&gt;
+            &lt;i class='bx bx-check'&gt;&lt;/i&gt;
+        &lt;/div&gt;
+        &lt;div class="timeline-contenido"&gt;
+            &lt;div&gt;
+                &lt;div class="timeline-label"&gt;Aprobada&lt;/div&gt;
+                &lt;div class="timeline-detalle"&gt;Por: Juan Perez&lt;/div&gt;
+            &lt;/div&gt;
+            &lt;div class="timeline-fecha"&gt;17/04/2026 10:30&lt;/div&gt;
+        &lt;/div&gt;
+    &lt;/div&gt;
+&lt;/div&gt;</div>
+
+                        <div class="sub-title">Modo Entrenamiento</div>
+<div class="code-block">&lt;body class="training-mode"&gt;
+&lt;div class="training-banner"&gt;MODO ENTRENAMIENTO&lt;/div&gt;
+&lt;header class="app-header training-mode"&gt;...&lt;/header&gt;</div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </main>
+</div>
+
+<script>
+function cambiarTema(tema) {
+    document.documentElement.className = tema;
+}
+</script>
+</body>
+</html>

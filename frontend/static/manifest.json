@@ -1,0 +1,24 @@
+{
+  "name": "Operaciones Agrícolas - Nintanga",
+  "short_name": "Op. Agrícolas",
+  "description": "Módulo de Operaciones Agrícolas - Nintanga",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a1a2e",
+  "theme_color": "#7b1fa2",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/Mirai1-nintanga.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/LogoNintanga.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

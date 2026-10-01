@@ -1,0 +1,47 @@
+# Variables de entorno (CREDENCIALES) -- nunca al repo
+.env
+.env.*
+# ...salvo las URLs publicas del build del frontend
+!frontend/.env.production
+
+# Python
+backend/venv/
+backend/.venv/
+__pycache__/
+*.py[cod]
+*.so
+
+# Node
+node_modules/
+dist/
+dist-ssr/
+*.local
+.npm/
+
+# Base de datos local
+*.db
+*.sqlite3
+
+# Documentacion interna
+Documentacion/
+
+# IDE / OS
+.idea/
+.vscode/
+.claude/
+*.swp
+*.suo
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Logs
+*.log
+npm-debug.log*
+
+# Llaves y certificados
+*.pem
+*.key
+*.cert
+*.crt
+credentials.json

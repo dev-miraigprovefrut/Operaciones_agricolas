@@ -1,0 +1,123 @@
+/* ===================================================================
+   MIRAI CORPORATIVO - MODO OSCURO
+   Impórtalo DESPUÉS de mirai-base.css, mirai-componentes.css y
+   mirai-layout.css. Sincronizado con ProgramaBase (ver TEMA.md en el
+   repo IT Team - Diseño Corporativo) -- si el programa base cambia esta
+   hoja, replicar el cambio aqui igual, para que todos los modulos
+   compartan la misma logica de modo oscuro.
+
+   Resuelve los lugares donde el color de marca se usa como color de
+   TEXTO, que sobre fondo oscuro no se lee.
+   =================================================================== */
+
+/* -------------------------------------------------------------------
+   Color de marca para TEXTO.
+   En claro es el primario; en oscuro es el color de texto (blanco).
+   El primario de Nintanga (#712d7d) es perfecto sobre blanco e ilegible
+   sobre oscuro, asi que NO se usa como texto en modo oscuro.
+
+   Usala en los estilos EN LINEA de tus componentes:
+       color: 'var(--color-primary-texto)'
+   en lugar de var(--color-primary). Un estilo en linea le gana a
+   cualquier regla CSS, asi que desde el CSS no hay forma de corregirlo.
+   ------------------------------------------------------------------- */
+:root {
+  --color-primary-texto: var(--color-primary);
+}
+
+.dark {
+  --color-primary-texto: var(--color-text-primary);
+  /* Controles nativos del navegador (el mini-calendario de <input type="date">,
+     checkboxes, scrollbars) se pintan en su variante oscura -- sin esto el
+     navegador los sigue dibujando en claro aunque el resto de la pagina este
+     oscuro, y el popup del date picker queda ilegible sobre el fondo oscuro. */
+  color-scheme: dark;
+}
+
+/* Textos que en modo claro van en color de marca */
+.dark h2,
+.dark a,
+.dark .text-primary,
+.dark .tabla-loading,
+.dark .card-header,
+.dark .drawer-header,
+.dark .drawer-header h2,
+.dark .drawer-section h3,
+.dark .drawer-subcard h4,
+.dark .stat-block .stat-number {
+  color: var(--color-primary-texto);
+}
+
+/* Titulos de pantalla (page-header h1) y las pestañas del menu: en oscuro
+   no van en blanco puro (--color-text-primary) ni en el primario -- van en
+   el color de acento (secundario de marca), igual que otros modulos MirAI. */
+.dark .page-header h1,
+.dark .nav-button,
+.dark .nav-button i {
+  color: var(--color-accent);
+}
+
+/* Excepcion: la pestaña activa va sobre --color-active-bg, que es un fondo
+   claro incluso en modo oscuro, asi que ahi el primario si contrasta.
+   El hover no, porque su fondo (--color-bg-light) si es oscuro. */
+.dark .nav-button.active,
+.dark .nav-button.active i {
+  color: var(--color-primary);
+}
+
+.dark .nav-button:hover,
+.dark .nav-button:hover i {
+  color: var(--color-text-primary);
+}
+
+/* -------------------------------------------------------------------
+   SweetAlert2
+   Su popup es blanco fijo y el titulo hereda el color de texto del
+   documento: en oscuro quedaba gris claro sobre blanco, ilegible.
+   Su z-index por defecto es 1060, por debajo de los drawers (10002).
+   ------------------------------------------------------------------- */
+.swal2-container {
+  z-index: 20000 !important;
+}
+
+.dark .swal2-popup {
+  background: var(--color-bg-white);
+  color: var(--color-text-primary);
+}
+
+.dark .swal2-title,
+.dark .swal2-html-container,
+.dark .swal2-content,
+.dark .swal2-footer {
+  color: var(--color-text-primary);
+}
+
+.dark .swal2-footer {
+  border-top-color: var(--color-border);
+}
+
+.dark .swal2-input,
+.dark .swal2-select,
+.dark .swal2-textarea,
+.dark .swal2-file {
+  background: var(--color-bg-light);
+  color: var(--color-text-primary);
+  border-color: var(--color-border);
+}
+
+.dark .swal2-icon.swal2-question {
+  border-color: var(--color-text-secondary);
+  color: var(--color-text-secondary);
+}
+
+/* -------------------------------------------------------------------
+   Logo servido desde la tabla `empresas` (proxy a S3).
+   Viene recortado (el backend normaliza a 1024px de alto y quita el
+   margen transparente), asi que no sirve el alto fijo grande que usan
+   los logos empaquetados: se ajusta al alto del contenedor.
+   ------------------------------------------------------------------- */
+.header-logo img.logo-empresa {
+  height: 100%;
+  max-height: 100%;
+  width: auto;
+}

@@ -1,0 +1,316 @@
+/* ===================================================================
+   MIRAI CORPORATIVO - RESPONSIVE + UTILIDADES CSS
+   =================================================================== */
+
+/* UTILIDADES FLEX */
+.d-flex { display: flex; }
+.d-inline-flex { display: inline-flex; }
+.flex-column { flex-direction: column; }
+.flex-wrap { flex-wrap: wrap; }
+.flex-1 { flex: 1; }
+.align-items-center { align-items: center; }
+.align-items-start { align-items: flex-start; }
+.justify-content-center { justify-content: center; }
+.justify-content-between { justify-content: space-between; }
+.justify-content-end { justify-content: flex-end; }
+.gap-xs { gap: var(--space-xs); }
+.gap-sm { gap: var(--space-sm); }
+.gap-md { gap: var(--space-md); }
+.gap-base { gap: var(--space-base); }
+.gap-lg { gap: var(--space-lg); }
+
+/* UTILIDADES GRID */
+.d-grid { display: grid; }
+.grid-2 { grid-template-columns: repeat(2, 1fr); }
+.grid-3 { grid-template-columns: repeat(3, 1fr); }
+.grid-4 { grid-template-columns: repeat(4, 1fr); }
+.grid-auto { grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); }
+
+/* ESPACIADO */
+.m-0 { margin: 0; }
+.mt-sm { margin-top: var(--space-sm); }
+.mt-base { margin-top: var(--space-base); }
+.mt-lg { margin-top: var(--space-lg); }
+.mb-sm { margin-bottom: var(--space-sm); }
+.mb-base { margin-bottom: var(--space-base); }
+.mb-lg { margin-bottom: var(--space-lg); }
+.p-0 { padding: 0; }
+.p-sm { padding: var(--space-sm); }
+.p-base { padding: var(--space-base); }
+.p-lg { padding: var(--space-lg); }
+.w-100 { width: 100%; }
+.hidden { display: none !important; }
+.clickeable { cursor: pointer; }
+
+/* ANIMACIONES */
+@keyframes mirai-slideDown { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes mirai-slideRight { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes mirai-scaleIn { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
+.animate-fadeIn { animation: mirai-fadeIn 0.3s ease; }
+.animate-slideDown { animation: mirai-slideDown 0.3s ease; }
+.animate-slideRight { animation: mirai-slideRight 0.3s ease; }
+
+/* SCROLLBAR */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: var(--color-bg-light); }
+::-webkit-scrollbar-thumb { background: var(--color-text-muted); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-text-secondary); }
+
+/* ===================================================================
+   RESPONSIVE BREAKPOINTS
+   =================================================================== */
+
+/* OCULTAR COLUMNAS DE TABLA PROGRESIVAMENTE */
+@media (max-width: 1100px) { .col-hide-1100 { display: none; } }
+@media (max-width: 900px) { .col-hide-900 { display: none; } }
+@media (max-width: 700px) { .col-hide-700 { display: none; } }
+@media (max-width: 520px) { .col-hide-520 { display: none; } }
+
+/* --- TABLET: 769px - 1024px --- */
+@media (max-width: 1024px) {
+    .app-main { padding: 0.25rem 0.5rem; }
+    .app-header-container { padding: 0.5rem var(--space-lg); }
+    .header-logo { height: 4rem; }
+    .header-logo img { height: 7rem; }
+    .header-right { gap: var(--space-base); }
+    .header-datetime, .header-user { font-size: var(--font-size-xs); }
+    .nav-container { padding: 0 var(--space-base); }
+    .nav-items { gap: 0.25rem; }
+    .nav-button { padding: 1rem 0.75rem; font-size: 0.9rem; }
+    .nav-button span { display: none; }
+    .drawer { width: 80%; right: -80%; }
+    .drawer-left { left: -80%; }
+    .dashboard-row-2col { grid-template-columns: 1fr; }
+    .dashboard-row-3col { grid-template-columns: 1fr 1fr; }
+    .page-header h1 { font-size: 1.75rem; }
+    .tabla { font-size: 0.85rem; }
+    .tabla th, .tabla td { padding: 0.75rem 0.5rem; }
+}
+
+/* --- MOBILE: <= 768px --- */
+@media (max-width: 768px) {
+    .app-main { padding: 0.25rem 0.5rem; padding-bottom: 2rem; }
+
+    /* Header compacto */
+    .app-header-container { padding: 0.4rem var(--space-base); }
+    .header-logo { height: 3rem; }
+    .header-logo img { height: 5rem; }
+    .header-datetime { display: none; }
+    .header-user-email, .header-user-role { display: none; }
+    .header-user-name { font-size: 0.8rem; }
+    .header-btn-logout span { display: none; }
+    .header-btn-logout { padding: 0.4rem; min-width: 36px; }
+
+    /* BOTON HAMBURGUESA FLOTANTE - VISIBLE */
+    .mobile-menu-btn {
+        display: flex;
+        animation: fadeInFloat 0.3s ease;
+    }
+
+    /* NAV se convierte en sidebar */
+    .app-nav {
+        position: relative;
+        border-bottom: none;
+        background: transparent;
+        box-shadow: none;
+    }
+
+    .nav-container {
+        padding: 0;
+    }
+
+    /* SIDEBAR LATERAL (el menu se vuelve sidebar izquierdo) */
+    .nav-items {
+        position: fixed;
+        top: 0;
+        left: -100%;
+        width: 280px;
+        height: 100vh;
+        background: linear-gradient(to top, var(--color-accent) 0%, var(--color-primary) 90%);
+        flex-direction: column;
+        padding: 0;
+        margin: 0;
+        gap: 0;
+        transition: left 0.3s ease;
+        z-index: var(--z-mobile-menu);
+        overflow-y: auto;
+        box-shadow: 4px 0 15px rgba(0,0,0,0.5);
+    }
+
+    .nav-items.mobile-open {
+        left: 0;
+    }
+
+    /* Sidebar header y user - visibles en mobile */
+    .sidebar-header {
+        display: flex;
+    }
+
+    .sidebar-user-section {
+        display: flex;
+    }
+
+    /* Items del menu en sidebar */
+    .nav-item { width: 100%; }
+
+    .nav-button {
+        width: 100%;
+        padding: 1.2rem 1.5rem;
+        color: white;
+        justify-content: flex-start;
+        border-radius: 0;
+        background: transparent;
+        border-bottom: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .nav-button-home { border-right: none; margin-right: 0; }
+
+    .nav-button:hover {
+        background: rgba(255,255,255,0.12);
+        color: white;
+    }
+
+    .nav-button.active {
+        background: rgba(255,255,255,0.2);
+        color: white;
+        border-left: 4px solid white;
+    }
+
+    .nav-button i { color: white; font-size: 1.4rem; }
+    .nav-button span { display: inline !important; color: white; font-size: 1rem; font-weight: 500; }
+    .nav-button .arrow { margin-left: auto; color: rgba(255,255,255,0.8); }
+
+    /* Submenu en sidebar */
+    .nav-submenu {
+        position: static;
+        box-shadow: none;
+        background: rgba(0,0,0,0.3);
+        border-radius: var(--radius-lg);
+        margin: 0.5rem var(--space-base);
+        animation: mirai-slideDown 0.2s ease;
+        border: none;
+    }
+
+    .nav-submenu-items { padding: 0.5rem 0; }
+
+    .nav-submenu-link {
+        color: rgba(255,255,255,0.95);
+        padding: 1rem 1.5rem 1rem 3.5rem;
+        margin: 0;
+        width: 100%;
+        border-radius: var(--radius-lg);
+        font-size: 0.95rem;
+    }
+
+    .nav-submenu-link:hover {
+        background: rgba(255,255,255,0.15);
+        color: white;
+        transform: none;
+        box-shadow: none;
+    }
+
+    .nav-submenu-link:hover i { color: white; }
+    .nav-submenu-link i { color: rgba(255,255,255,0.9); font-size: 1.3rem; }
+
+    /* Scrollbar sidebar */
+    .nav-items::-webkit-scrollbar { width: 6px; }
+    .nav-items::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); }
+    .nav-items::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.3); border-radius: 3px; }
+
+    /* Drawer fullscreen */
+    .drawer { width: 100%; right: -100%; }
+    .drawer-left { left: -100%; }
+    .drawer-header { padding: var(--space-base) 1.25rem; }
+    .drawer-header h2 { font-size: 1.25rem; }
+    .drawer-content { padding: 0.75rem; }
+    .drawer-section { padding: var(--space-base); margin-bottom: 0.75rem; }
+    .drawer-section h3 { font-size: 1rem; }
+    .detail-grid { grid-template-columns: 1fr; }
+    .form-row { grid-template-columns: 1fr; gap: 0; }
+    .drawer-footer { padding: var(--space-base) 1.25rem; gap: 0.5rem; }
+
+    /* Page header */
+    .page-header { flex-direction: column; align-items: stretch; padding: var(--space-base); gap: var(--space-base); }
+    .page-header h1 { font-size: 1.4rem; }
+    .page-actions { flex-direction: column; width: 100%; }
+
+    /* Dashboard */
+    .dashboard-row-3col { grid-template-columns: 1fr; }
+    .dashboard-row-2equal { grid-template-columns: 1fr; }
+
+    /* Stepper vertical */
+    .stepper { flex-direction: column; align-items: flex-start; padding: 0.5rem var(--space-base); gap: 0; }
+    .stepper-paso-wrapper { flex-direction: column; align-items: flex-start; width: 100%; }
+    .stepper-paso-contenido { flex-direction: row; min-width: unset; gap: 8px; }
+    .stepper-icono { width: 24px; height: 24px; font-size: 0.8rem; flex-shrink: 0; }
+    .stepper-linea { width: 2px; height: 12px; min-width: unset; margin-bottom: 0; margin-left: 11px; flex: unset; }
+
+    .badge { padding: 0.2rem 0.5rem; font-size: 0.75rem; }
+
+    /* Botones solo iconos en mobile */
+    .btn-responsive-icon { font-size: 0; padding: 0.5rem 0.75rem; }
+    .btn-responsive-icon i { font-size: 1.25rem; margin-right: 0; }
+
+    .filters-container { flex-wrap: wrap; gap: 0.5rem; }
+}
+
+/* --- MOBILE SMALL: <= 480px --- */
+@media (max-width: 480px) {
+    .app-main { padding: 0.25rem; padding-bottom: 2rem; }
+    .app-header-container { padding: 0.3rem 0.75rem; }
+    .header-logo { height: 2.5rem; }
+    .header-logo img { height: 4rem; }
+    .header-user { display: none; }
+    .page-container { padding: 0.75rem; }
+    .page-header { padding: 0.75rem; }
+    .page-header h1 { font-size: 1.2rem; }
+    .stats-grid { grid-template-columns: repeat(2, 1fr); gap: var(--space-sm); }
+    .stat-block { padding: var(--space-base); }
+    .stat-block .stat-number { font-size: 1.5rem; }
+    .badge { font-size: 0.65rem; padding: 2px 6px; }
+}
+
+/* VISIBILIDAD */
+@media (max-width: 768px) { .hide-mobile { display: none !important; } }
+@media (max-width: 1024px) and (min-width: 769px) { .hide-tablet { display: none !important; } }
+@media (max-width: 1024px) { .only-desktop { display: none !important; } }
+@media (min-width: 769px) { .only-mobile { display: none !important; } }
+
+/* ===================================================================
+   FALLBACK GAP FLEXBOX - navegadores sin soporte (Android WebView/Chrome < 84)
+   Sin esto, header/menu/drawer quedan con elementos pegados o desordenados
+   en celulares con el sistema desactualizado. Se reemplaza gap por margin.
+   =================================================================== */
+@supports not (gap: 1px) {
+    .header-logo > *:not(:first-child) { margin-left: 0.75rem; }
+    .header-right > *:not(:first-child) { margin-left: var(--space-lg); }
+    .header-btn-logout > *:not(:first-child) { margin-left: 0.5rem; }
+    .nav-items > *:not(:first-child) { margin-left: 0.5rem; }
+    .nav-button > *:not(:first-child) { margin-left: 0.5rem; }
+    .nav-submenu-link > *:not(:first-child) { margin-left: 0.75rem; }
+    .sidebar-header > *:not(:first-child) { margin-top: 0.75rem; }
+    .sidebar-header-content > *:not(:first-child) { margin-top: 0.75rem; }
+    .page-header > *:not(:first-child) { margin-left: 0.75rem; }
+    .page-header h1 > *:not(:first-child) { margin-left: 0.5rem; }
+    .page-actions > *:not(:first-child) { margin-left: var(--space-base); }
+    .drawer-header h2 > *:not(:first-child) { margin-left: 0.5rem; }
+    .drawer-section h3 > *:not(:first-child) { margin-left: 0.5rem; }
+    .detail-field > *:not(:first-child) { margin-top: 0.25rem; }
+    .drawer-footer > *:not(:first-child) { margin-left: var(--space-base); }
+    .filters-container > *:not(:first-child) { margin-left: 0.5rem; }
+
+    @media (max-width: 1024px) {
+        .header-right > *:not(:first-child) { margin-left: var(--space-base); }
+        .nav-items > *:not(:first-child) { margin-left: 0.25rem; }
+    }
+
+    @media (max-width: 768px) {
+        .nav-items > *:not(:first-child) { margin-left: 0; margin-top: 0; }
+        .nav-button > *:not(:first-child) { margin-left: 0.5rem; }
+        .page-header { flex-direction: column; }
+        .page-header > *:not(:first-child) { margin-left: 0; margin-top: var(--space-base); }
+        .page-actions > *:not(:first-child) { margin-left: 0; margin-top: var(--space-base); }
+        .drawer-footer > *:not(:first-child) { margin-left: 0.5rem; }
+        .filters-container > *:not(:first-child) { margin-left: 0.5rem; margin-top: 0.5rem; }
+    }
+}

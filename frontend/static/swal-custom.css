@@ -1,0 +1,156 @@
+/* Personalización de SweetAlert2 - Tema Provefrut */
+
+.swal2-popup {
+  background-color: #212529 !important;
+  color: #ffffff !important;
+  border-radius: 8px !important;
+}
+
+.swal2-title {
+  color: #ffffff !important;
+  font-size: 1.5rem !important;
+  font-weight: 600 !important;
+}
+
+.swal2-html-container {
+  color: #e9ecef;
+  font-size: 0.95rem !important;
+}
+
+.swal2-html-container p {
+  margin: 8px 0 !important;
+  line-height: 1.6 !important;
+}
+
+.swal2-html-container strong {
+  color: #ffffff;
+  font-weight: 600 !important;
+}
+
+/* Botón de confirmación */
+.swal2-confirm {
+  background-color: #78b21f !important;
+  border: none !important;
+  border-radius: 4px !important;
+  padding: 10px 24px !important;
+  font-weight: 500 !important;
+  transition: all 0.2s ease !important;
+}
+
+.swal2-confirm:hover {
+  background-color: #669919 !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 8px rgba(120, 178, 31, 0.3) !important;
+}
+
+.swal2-confirm:focus {
+  box-shadow: 0 0 0 3px rgba(120, 178, 31, 0.4) !important;
+}
+
+/* Botón de cancelar */
+.swal2-cancel {
+  background-color: #6c757d !important;
+  border: none !important;
+  border-radius: 4px !important;
+  padding: 10px 24px !important;
+  font-weight: 500 !important;
+  transition: all 0.2s ease !important;
+}
+
+.swal2-cancel:hover {
+  background-color: #5a6268 !important;
+  transform: translateY(-1px) !important;
+  box-shadow: 0 4px 8px rgba(108, 117, 125, 0.3) !important;
+}
+
+/* Iconos */
+.swal2-icon {
+  border-color: #78b21f !important;
+}
+
+.swal2-icon.swal2-success [class^='swal2-success-line'] {
+  background-color: #78b21f !important;
+}
+
+.swal2-icon.swal2-success .swal2-success-ring {
+  border-color: rgba(120, 178, 31, 0.3) !important;
+}
+
+.swal2-icon.swal2-error {
+  border-color: #dc3545 !important;
+}
+
+.swal2-icon.swal2-error [class^='swal2-x-mark-line'] {
+  background-color: #dc3545 !important;
+}
+
+.swal2-icon.swal2-question {
+  border-color: #78b21f !important;
+  color: #78b21f !important;
+}
+
+.swal2-icon.swal2-warning {
+  border-color: #ffc107 !important;
+  color: #ffc107 !important;
+}
+
+/* Scrollbar personalizado para el contenido */
+.swal2-html-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.swal2-html-container::-webkit-scrollbar-track {
+  background: #343a40;
+  border-radius: 4px;
+}
+
+.swal2-html-container::-webkit-scrollbar-thumb {
+  background: #78b21f;
+  border-radius: 4px;
+}
+
+.swal2-html-container::-webkit-scrollbar-thumb:hover {
+  background: #669919;
+}
+
+/* Botones de acción */
+.swal2-actions {
+  gap: 12px !important;
+}
+
+/* Overlay - z-index mayor al drawer (10002) para aparecer encima */
+.swal2-container {
+  background-color: rgba(0, 0, 0, 0.7) !important;
+  z-index: 20000 !important;
+}
+
+/* Animaciones */
+.swal2-popup.swal2-show {
+  animation: swal2-show 0.3s !important;
+}
+
+.swal2-popup.swal2-hide {
+  animation: swal2-hide 0.2s !important;
+}
+
+/* Swal con fondo claro para modales de correo y similares */
+.swal2-popup.swal-light {
+  background-color: #ffffff !important;
+  color: #333333 !important;
+}
+
+.swal-light .swal2-title {
+  color: #2e247a !important;
+}
+
+.swal-light .swal2-html-container {
+  color: #333333 !important;
+}
+
+.swal-light .swal2-html-container strong {
+  color: #1b5e20 !important;
+}
+
+.swal-light .swal2-html-container::-webkit-scrollbar-track {
+  background: #f0f0f0;
+}

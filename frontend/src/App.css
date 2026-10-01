@@ -1,0 +1,261 @@
+/* Estilos del sistema MirAI Corporativo: cargados como <link> en index.html
+   (no @import aqui) para que carguen en paralelo y no dependan de que este
+   archivo termine de descargarse primero en conexiones moviles lentas. */
+
+/* Reset para cubrir todo el ancho */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  min-height: 100vh;
+}
+
+.app-shell {
+  width: 100%;
+  min-height: 100vh;
+}
+
+.app-shell.modo-entrenamiento {
+  border-top: 6px solid #ff6d00;
+  border-left: 6px solid #ff6d00;
+  border-right: 6px solid #ff6d00;
+  box-shadow: inset 0 0 0 2px #ff6d00;
+}
+
+.banner-entrenamiento {
+  background: linear-gradient(90deg, #e65100, #ff6d00);
+  color: white;
+  text-align: center;
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.app-header,
+.app-nav,
+.app-main {
+  width: 100%;
+}
+
+.app-main {
+  padding: 1rem;
+}
+
+/* Botón menú en header */
+.header-menu-btn {
+  display: none;
+  background: rgba(255,255,255,0.22);
+  border: 1px solid rgba(255,255,255,0.4);
+  color: white;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0.5rem;
+  min-width: 2.5rem;
+  min-height: 2.5rem;
+  margin-right: 0.75rem;
+  border-radius: 8px;
+  flex-shrink: 0;
+  transition: background 0.2s;
+}
+
+.header-menu-btn:hover {
+  background: rgba(255,255,255,0.35);
+}
+
+/* Acciones móvil - ocultas por defecto */
+.header-mobile-actions {
+  display: none;
+}
+.header-btn-logout-mobile {
+  display: none;
+}
+
+/* Título responsivo del header */
+.header-logo-text .title-mobile {
+  display: none;
+}
+
+@media (max-width: 768px) {
+  /* Fichas de Cosecha: en movil no hay espacio para Resp. Transporte/
+     Dueño/Supervisor repetidos en cada bloque de camion -- se deja solo
+     la Placa y los datos propios de cada ficha (Lote/Producto/etc). */
+  .col-ocultar-movil {
+    display: none;
+  }
+
+  /* Reporte de Cosecha usa table-layout:fixed con anchos por columna
+     pensados para escritorio (13 columnas); al ocultar las que no caben
+     en movil, las 7 que quedan visibles no llenaban el 100% del ancho
+     (se quedaban apretadas a la izquierda). Se les da un ancho especifico
+     para movil que sume 100% entre las 7. */
+  .col-fecha-cosecha { width: 13% !important; }
+  .col-nficha-cosecha { width: 11% !important; }
+  .col-placa-cosecha { width: 20% !important; }
+  .col-lote-cosecha { width: 15% !important; }
+  .col-bines-cosecha { width: 12% !important; }
+  .col-peso-cosecha { width: 22% !important; }
+  .col-estado-cosecha { width: 7% !important; }
+
+  /* En movil no hay espacio para el texto completo del estado (ENVIADO,
+     RECIBIDO, etc.) -- se deja solo un punto del color correspondiente
+     (usa col-ocultar-movil, la misma clase de las columnas ocultas). */
+  .estado-badge-punto { display: inline-block !important; margin: 0 auto; }
+  .tabla thead th:last-child { text-align: center; }
+  .tabla tbody td:last-child { text-align: center; }
+
+  /* Drawer de detalle de ficha: ocupa el ancho completo de la pantalla
+     en movil (antes dejaba un 5% en blanco, pensado para escritorio). */
+  .drawer-detalle-cosecha {
+    width: 100vw !important;
+    max-width: 100vw !important;
+  }
+
+  .header-menu-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  
+  .header-logo-text .title-full {
+    display: none;
+  }
+  
+  .header-logo-text .title-mobile {
+    display: inline;
+    font-size: 1.2rem;
+    font-weight: 600;
+  }
+  
+  .header-logo {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  
+  /* Ocultar logo en móvil */
+  .header-logo-img {
+    display: none;
+  }
+  
+  .app-header-container {
+    padding: 0.75rem 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  
+  /* Ocultar sección derecha completa en móvil */
+  .header-right {
+    display: none;
+  }
+  
+  /* Mostrar acciones móvil */
+  .header-mobile-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  .header-btn-logout-mobile {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(255,255,255,0.15);
+    border: none;
+    color: white;
+    font-size: 1.3rem;
+    cursor: pointer;
+    padding: 0.5rem 0.75rem;
+    border-radius: 8px;
+    transition: background 0.2s;
+  }
+  
+  .header-btn-logout-mobile:hover {
+    background: rgba(255,255,255,0.25);
+  }
+}
+
+/* Fallback gap flexbox: Android WebView/Chrome < 84 sin soporte */
+@supports not (gap: 1px) {
+  .banner-entrenamiento > *:not(:first-child) { margin-left: 0.5rem; }
+
+  @media (max-width: 768px) {
+    .header-logo > *:not(:first-child) { margin-left: 0.5rem; }
+    .header-mobile-actions > *:not(:first-child) { margin-left: 0.5rem; }
+  }
+}
+
+/* SweetAlert2 tema oscuro */
+.swal-dark-popup {
+  border-radius: 12px !important;
+  border: 1px solid #333 !important;
+  color: #ffffff !important;
+}
+
+.swal-dark-title {
+  font-size: 1.1rem !important;
+  font-weight: 600 !important;
+  color: #ffffff !important;
+}
+
+.swal-dark-content {
+  font-size: 0.9rem !important;
+  text-align: center !important;
+  color: #ffffff !important;
+}
+
+.swal-dark-confirm {
+  border-radius: 6px !important;
+  font-weight: 500 !important;
+}
+
+.swal-dark-cancel {
+  border-radius: 6px !important;
+  font-weight: 500 !important;
+}
+
+.swal-seguridad-popup {
+  z-index: 99999 !important;
+  border-radius: 12px !important;
+  border: 1px solid #333 !important;
+}
+
+.swal2-container {
+  z-index: 99999 !important;
+}
+
+.swal2-select {
+  background: #2a2a3e !important;
+  color: #fff !important;
+  border: 1px solid #444 !important;
+  border-radius: 6px !important;
+  padding: 0.5rem !important;
+}
+
+.swal2-input {
+  background: #2a2a3e !important;
+  color: #fff !important;
+  border: 1px solid #444 !important;
+  border-radius: 6px !important;
+}
+
+/* Ocultar flechas de input number */
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type=number] {
+  -moz-appearance: textfield;
+}

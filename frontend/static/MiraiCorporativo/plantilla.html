@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="es" class="provefrut-theme">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Plantilla MirAI - Sistema Corporativo</title>
+
+    <!-- CSS del Sistema de Diseno -->
+    <link rel="stylesheet" href="../manual-corporativo.css">
+    <link rel="stylesheet" href="mirai-base.css">
+    <link rel="stylesheet" href="mirai-componentes.css">
+    <link rel="stylesheet" href="mirai-layout.css">
+    <link rel="stylesheet" href="mirai-responsive.css">
+
+    <!-- Iconos BoxIcons -->
+    <link rel="stylesheet" href="../boxicons/css/boxicons.min.css">
+
+    <style>
+        /* Estilos solo para el selector de tema de esta demo */
+        .demo-theme-switcher {
+            position: fixed;
+            bottom: 1rem;
+            right: 1rem;
+            z-index: 99999;
+            background: #212529;
+            padding: 1rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+        .demo-theme-switcher span {
+            color: white;
+            font-size: 0.75rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            text-align: center;
+        }
+        .demo-theme-switcher button {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: 6px;
+            color: white;
+            font-weight: 600;
+            cursor: pointer;
+            font-size: 0.85rem;
+            transition: transform 0.2s;
+        }
+        .demo-theme-switcher button:hover { transform: scale(1.05); }
+        .demo-btn-provefrut { background: #285d2f; }
+        .demo-btn-procongelados { background: #2e247a; }
+        .demo-btn-nintanga { background: #712d7d; }
+
+        .demo-section { margin-bottom: 2rem; }
+        .demo-section > h2 { margin-bottom: 1rem; }
+        .demo-row { display: flex; flex-wrap: wrap; gap: 1rem; align-items: flex-start; margin-bottom: 1rem; }
+
+        .color-palette { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem; }
+        .color-swatch { display: flex; align-items: center; gap: 0.75rem; }
+        .color-swatch-box { width: 48px; height: 48px; border-radius: 10px; box-shadow: 0 2px 6px rgba(0,0,0,0.15); flex-shrink: 0; }
+        .color-swatch-info { display: flex; flex-direction: column; }
+        .color-swatch-info strong { font-size: 0.85rem; color: var(--color-text-primary); }
+        .color-swatch-info span { font-size: 0.72rem; color: var(--color-text-secondary); font-family: Consolas, monospace; }
+    </style>
+</head>
+<body>
+
+    <!-- ================================================================
+         SELECTOR DE TEMA (Solo para demo)
+         ================================================================ -->
+    <div class="demo-theme-switcher">
+        <span>Cambiar Tema</span>
+        <button class="demo-btn-provefrut" onclick="cambiarTema('provefrut-theme')">
+            <i class='bx bxs-leaf'></i> Provefrut
+        </button>
+        <button class="demo-btn-procongelados" onclick="cambiarTema('procongelados-theme')">
+            <i class='bx bxs-package'></i> Procongelados
+        </button>
+        <button class="demo-btn-nintanga" onclick="cambiarTema('nintanga-theme')">
+            <i class='bx bxs-star'></i> Nintanga
+        </button>
+    </div>
+
+    <!-- ================================================================
+         1. APP SHELL - ESTRUCTURA COMPLETA
+         ================================================================ -->
+    <div class="app-shell">
+
+        <!-- === HEADER SUPERIOR === -->
+        <header class="app-header">
+            <div class="app-header-container">
+                <div class="header-logo">
+                    <img src="../LogoProvefrut.png" alt="Logo" id="logo-img">
+                    <span class="header-logo-text">MirAI Compras</span>
+                </div>
+                <div class="header-right">
+                    <div class="header-datetime">
+                        <span class="date">Jueves, 17 de Abril 2026</span>
+                        <span class="time">10:30:45</span>
+                    </div>
+                    <div class="header-user">
+                        <span class="header-user-name">Juan Calvopina</span>
+                        <span class="header-user-email">jcalvopina@provefrut.com</span>
+                        <span class="header-user-role">Administrador</span>
+                    </div>
+                    <button class="header-btn-logout">
+                        <i class='bx bx-log-out'></i>
+                        <span>Salir</span>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <!-- === NAVEGACION === -->
+        <nav class="app-nav">
+            <div class="nav-container">
+
+                <!-- Boton hamburguesa flotante (solo visible en mobile <= 768px) -->
+                <button class="mobile-menu-btn" id="mobileMenuBtn" onclick="toggleMobileMenu()">
+                    <i class='bx bx-menu'></i>
+                </button>
+
+                <!-- Overlay oscuro mobile -->
+                <div class="mobile-overlay" id="mobileOverlay" onclick="cerrarMobileMenu()"></div>
+
+                <!-- Items de navegacion (se convierte en sidebar en mobile) -->
+                <ul class="nav-items" id="navItems">
+
+                    <!-- Sidebar header (solo visible en mobile) -->
+                    <li class="sidebar-header">
+                        <button class="sidebar-close-btn" onclick="cerrarMobileMenu()">
+                            <i class='bx bx-x'></i>
+                        </button>
+                        <div class="sidebar-header-content">
+                            <i class='bx bx-cart' style="font-size: 2rem; color: white;"></i>
+                            <h2 class="sidebar-header-title">MirAI Compras</h2>
+                        </div>
+                    </li>
+
+                    <!-- Sidebar user (solo visible en mobile) -->
+                    <li class="sidebar-user-section">
+                        <div class="sidebar-user-info">
+                            <div class="sidebar-user-name">Juan Calvopina</div>
+                            <div class="sidebar-user-email">jcalvopina@provefrut.com</div>
+                            <div class="sidebar-user-role">Administrador</div>
+                        </div>
+                        <button class="sidebar-btn-salir" title="Cerrar sesion">
+                            <i class='bx bx-log-out'></i>
+                        </button>
+                    </li>
+
+                    <!-- Item: Inicio -->
+                    <li class="nav-item">
+                        <a href="#" class="nav-button nav-button-home active" onclick="cerrarMobileMenu()">
+                            <i class='bx bxs-home'></i>
+                            <span>Inicio</span>
+                        </a>
+                    </li>
+
+                    <!-- Item: Compras (con submenu) -->
+                    <li class="nav-item">
+                        <button class="nav-button" onclick="toggleSubmenu(this)">
+                            <i class='bx bxs-cart'></i>
+                            <span>Compras</span>
+                            <i class='bx bx-chevron-down arrow'></i>
+                        </button>
+                        <div class="nav-submenu" style="display:none">
+                            <ul class="nav-submenu-items">
+                                <li><a href="#" class="nav-submenu-link" onclick="cerrarMobileMenu()"><i class='bx bx-list-ul'></i> Solicitudes</a></li>
+                                <li><a href="#" class="nav-submenu-link" onclick="cerrarMobileMenu()"><i class='bx bx-file'></i> Cotizaciones</a></li>
+                                <li><a href="#" class="nav-submenu-link" onclick="cerrarMobileMenu()"><i class='bx bx-purchase-tag'></i> Ordenes</a></li>
+                            </ul>
+                        </div>
+                    </li>
+
+                    <!-- Item: Inventario (con submenu) -->
+                    <li class="nav-item">
+                        <button class="nav-button" onclick="toggleSubmenu(this)">
+                            <i class='bx bxs-box'></i>
+                            <span>Inventario</span>
+                            <i class='bx bx-chevron-down arrow'></i>
+                        </button>
+                        <div class="nav-submenu" style="display:none">
+                            <ul class="nav-submenu-items">
+                                <li><a href="#" class="nav-submenu-link" onclick="cerrarMobileMenu()"><i class='bx bx-package'></i> Productos</a></li>
+                                <li><a href="#" class="nav-submenu-link" onclick="cerrarMobileMenu()"><i class='bx bx-group'></i> Proveedores</a></li>
+                                <li><a href="#" class="nav-submenu-link" onclick="cerrarMobileMenu()"><i class='bx bx-book'></i> Catalogo</a></li>
+                            </ul>
+                        </div>
+                    </li>
+
+                    <!-- Item: Reportes -->
+                    <li class="nav-item">
+                        <a href="#" class="nav-button" onclick="cerrarMobileMenu()">
+                            <i class='bx bxs-bar-chart-alt-2'></i>
+                            <span>Reportes</span>
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </nav>
+
+        <!-- === CONTENIDO PRINCIPAL === -->
+        <main class="app-main">
+
+            <!-- ============================================================
+                 SECCION: PAGE HEADER (Encabezado de pagina)
+                 ============================================================ -->
+            <div class="demo-section">
+                <div class="page-header">
+                    <div>
+                        <h1><i class='bx bxs-cart'></i> Solicitudes de Compra</h1>
+                        <p class="page-subtitle">Gestiona las solicitudes de compra del sistema</p>
+                    </div>
+                    <div class="page-actions">
+                        <button class="btn btn-primary">
+                            <i class='bx bx-plus'></i> Nueva Solicitud
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Filtros -->
+                <div class="filters-container d-flex gap-sm">
+                    <div class="search-input-wrapper" style="flex:1">
+                        <i class='bx bx-search'></i>
+                        <input type="text" class="form-control" placeholder="Buscar por nombre, SKU, proveedor...">
+                    </div>
+                    <select class="form-control" style="width:200px;">
+                        <option>Todos los estados</option>
+                        <option>Pendiente</option>
+                        <option>Aprobado</option>
+                        <option>Rechazado</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- ============================================================
+                 SECCION: STATS DASHBOARD
+                 ============================================================ -->
+            <div class="demo-section">
+                <h2><i class='bx bxs-dashboard'></i> Dashboard / Estadisticas</h2>
+                <div class="stats-grid mb-lg">
+                    <div class="stat-block">
+                        <div class="stat-number">156</div>
+                        <div class="stat-label">Total Solicitudes</div>
+                    </div>
+                    <div class="stat-block">
+                        <div class="stat-number">42</div>
+                        <div class="stat-label">Pendientes</div>
+                    </div>
+                    <div class="stat-block">
+                        <div class="stat-number">98</div>
+                        <div class="stat-label">Aprobadas</div>
+                    </div>
+                    <div class="stat-block">
+                        <div class="stat-number">16</div>
+                        <div class="stat-label">Rechazadas</div>
+                    </div>
+                    <div class="stat-block">
+                        <div class="stat-number">$45,200</div>
+                        <div class="stat-label">Monto Total</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================================================
+                 SECCION: BOTONES
+                 ============================================================ -->
+            <div class="demo-section">
+                <h2><i class='bx bxs-hand-up'></i> Botones</h2>
+
+                <h3>Variantes de Color</h3>
+                <div class="demo-row">
+                    <button class="btn btn-primary"><i class='bx bx-check'></i> Primario</button>
+                    <button class="btn btn-accent"><i class='bx bx-star'></i> Acento</button>
+                    <button class="btn btn-success"><i class='bx bx-check-circle'></i> Exito</button>
+                    <button class="btn btn-danger"><i class='bx bx-x-circle'></i> Peligro</button>
+                    <button class="btn btn-warning"><i class='bx bx-error'></i> Advertencia</button>
+                    <button class="btn btn-secondary"><i class='bx bx-undo'></i> Secundario</button>
+                    <button class="btn btn-outline"><i class='bx bx-edit'></i> Outline</button>
+                </div>
+
+                <h3>Tamanos</h3>
+                <div class="demo-row">
+                    <button class="btn btn-primary btn-sm">Pequeno</button>
+                    <button class="btn btn-primary">Normal</button>
+                    <button class="btn btn-primary btn-lg">Grande</button>
+                </div>
+
+                <h3>Botones Icono (FAB)</h3>
+                <div class="demo-row">
+                    <button class="btn btn-icon btn-primary"><i class='bx bx-plus'></i></button>
+                    <button class="btn btn-icon btn-accent"><i class='bx bx-edit'></i></button>
+                    <button class="btn btn-icon btn-danger"><i class='bx bx-trash'></i></button>
+                    <button class="btn btn-icon-sm btn-success"><i class='bx bx-check'></i></button>
+                </div>
+
+                <h3>Estado Deshabilitado</h3>
+                <div class="demo-row">
+                    <button class="btn btn-primary" disabled>Deshabilitado</button>
+                    <button class="btn btn-danger" disabled>No disponible</button>
+                </div>
+            </div>
+
+            <!-- ============================================================
+                 SECCION: TARJETAS (Cards)
+                 ============================================================ -->
+            <div class="demo-section">
+                <h2><i class='bx bxs-card'></i> Tarjetas (Cards)</h2>
+                <div class="d-grid grid-3 gap-lg" style="margin-bottom:1rem">
+                    <div class="card card-primary">
+                        <div class="card-header">
+                            <i class='bx bxs-package'></i> Producto
+                        </div>
+                        <div class="card-body">
+                            <p>Card con borde superior del color primario del tema. Usa <code>.card-primary</code></p>
+                        </div>
+                        <div class="card-footer d-flex justify-content-end gap-sm">
+                            <button class="btn btn-sm btn-outline">Editar</button>
+                            <button class="btn btn-sm btn-primary">Ver</button>
+                        </div>
+                    </div>
+
+                    <div class="card">
+                        <div class="card-header-dark">
+                            <i class='bx bxs-bar-chart-alt-2'></i> Reporte Mensual
+                        </div>
+                        <div class="card-body">
+                            <p>Card con header de fondo color primario. Usa <code>.card-header-dark</code></p>
+                        </div>
+                    </div>
+
+                    <div class="card card-left-border">
+                        <div class="card-body">
+                            <h4 style="color:var(--color-primary); margin-bottom:0.5rem">
+                                <i class='bx bx-info-circle'></i> Informacion
+                            </h4>
+                            <p>Card con borde izquierdo. Usa <code>.card-left-border</code>. Ideal para headers de pagina.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================================================
+                 SECCION: TABLA
+                 ============================================================ -->
+            <div class="demo-section">
+                <h2><i class='bx bxs-spreadsheet'></i> Tablas</h2>
+                <div class="tabla-container">
+                    <table class="tabla">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>SKU</th>
+                                <th>Producto</th>
+                                <th class="col-hide-900">Marca</th>
+                                <th class="col-hide-700">Area</th>
+                                <th class="col-hide-1100">Precio</th>
+                                <th>Estado</th>
+                                <th class="tabla-centro">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr class="clickeable">
+                                <td>1</td>
+                                <td>SKU-001</td>
+                                <td class="tabla-nombre">Aceite Hidraulico ISO 68</td>
+                                <td class="col-hide-900">Mobil</td>
+                                <td class="col-hide-700">Mantenimiento</td>
+                                <td class="col-hide-1100 tabla-numero">$125.50</td>
+                                <td><span class="badge badge-activo">Activo</span></td>
+                                <td class="tabla-centro">
+                                    <button class="btn-action" style="background:var(--color-primary)"><i class='bx bx-show'></i></button>
+                                </td>
+                            </tr>
+                            <tr class="clickeable">
+                                <td>2</td>
+                                <td>SKU-002</td>
+                                <td class="tabla-nombre">Filtro de Aire K&N</td>
+                                <td class="col-hide-900">K&N</td>
+                                <td class="col-hide-700">Produccion</td>
+                                <td class="col-hide-1100 tabla-numero">$45.00</td>
+                                <td><span class="badge badge-pendiente">Pendiente</span></td>
+                                <td class="tabla-centro">
+                                    <button class="btn-action" style="background:var(--color-primary)"><i class='bx bx-show'></i></button>
+                                </td>
+                            </tr>
+                            <tr class="clickeable">
+                                <td>3</td>
+                                <td>SKU-003</td>
+                                <td class="tabla-nombre">Rodamiento SKF 6205</td>
+                                <td class="col-hide-900">SKF</td>
+                                <td class="col-hide-700">Taller</td>
+                                <td class="col-hide-1100 tabla-numero">$18.75</td>
+                                <td><span class="badge badge-aprobado">Aprobado</span></td>
+                                <td class="tabla-centro">
+                                    <button class="btn-action" style="background:var(--color-primary)"><i class='bx bx-show'></i></button>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>4</td>
+                                <td>SKU-004</td>
+                                <td class="tabla-nombre">Banda transportadora 5m</td>
+                                <td class="col-hide-900">Continental</td>
+                                <td class="col-hide-700">Produccion</td>
+                                <td class="col-hide-1100 tabla-numero">$890.00</td>
+                                <td><span class="badge badge-rechazado">Rechazado</span></td>
+                                <td class="tabla-centro">
+                                    <button class="btn-action" style="background:var(--color-primary)"><i class='bx bx-show'></i></button>
+                                </td>
+                            </tr>
+                            <tr>
+                                <td>5</td>
+                                <td>SKU-005</td>
+                                <td class="tabla-nombre">Sensor de temperatura PT100</td>
+                                <td class="col-hide-900">Siemens</td>
+                                <td class="col-hide-700">Instrumentacion</td>
+                                <td class="col-hide-1100 tabla-numero">$220.00</td>
+                                <td><span class="badge badge-inactivo">Inactivo</span></td>
+                                <td class="tabla-centro">
+                                    <button class="btn-action" style="background:var(--color-primary)"><i class='bx bx-show'></i></button>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- ============================================================
+                 SECCION: BADGES
+                 ============================================================ -->
+            <div class="demo-section">
+                <h2><i class='bx bxs-badge'></i> Badges de Estado</h2>
+                <div class="demo-row">
+                    <span class="badge badge-activo">Activo</span>
+                    <span class="badge badge-inactivo">Inactivo</span>
+                    <span class="badge badge-pendiente">Pendiente</span>
+                    <span class="badge badge-aprobado">Aprobado</span>
+                    <span class="badge badge-rechazado">Rechazado</span>
+                    <span class="badge badge-preliminar">Preliminar</span>
+                    <span class="badge badge-enviado">Enviado</span>
+                    <span class="badge badge-cotizando">Cotizando</span>
+                    <span class="badge badge-cotizado">Cotizado</span>
+                    <span class="badge badge-solicitado">Solicitado</span>
+                    <span class="badge badge-generada">Generada</span>
+                    <span class="badge badge-comprado">Comprado</span>
+                    <span class="badge badge-recibido">Recibido</span>
+                    <span class="badge badge-descontinuado">Descontinuado</span>
+                    <span class="badge badge-revision">Revision</span>
+                    <span class="badge badge-trasladando">Trasladando</span>
+                </div>
+
+                <h3 class="mt-lg">Badges de Aprobacion Multinivel</h3>
+                <div class="demo-row">
+                    <span class="badge badge-aprobado-jd">Aprobado JD</span>
+                    <span class="badge badge-aprobado-gg">Aprobado GG</span>
+                    <span class="badge badge-oc-aprobada">OC Aprobada</span>
+                    <span class="badge badge-oc-rechazada">OC Rechazada</span>
+                </div>
+            </div>
+
+            <!-- ============================================================
+                 SECCION: FORMULARIOS
+                 ============================================================ -->
+            <div class="demo-section">
+                <h2><i class='bx bxs-edit'></i> Formularios</h2>
+                <div class="card card-primary">
+                    <div class="card-header"><i class='bx bx-plus-circle'></i> Nuevo Producto</div>
+                    <div class="card-body">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Nombre <span class="required">*</span></label>
+                                <input type="text" class="form-control" placeholder="Nombre del producto">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">SKU <span class="required">*</span></label>
+                                <input type="text" class="form-control" placeholder="Codigo SKU">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label class="form-label">Categoria</label>
+                                <select class="form-control">
+                                    <option value="">Seleccionar...</option>
+                                    <option>Repuestos</option>
+                                    <option>Insumos</option>
+                                    <option>Herramientas</option>
+                                    <option>Materiales</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Precio Unitario</label>
+                                <input type="number" class="form-control" placeholder="0.00" style="text-transform:none">
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Descripcion</label>
+                            <textarea class="form-control" rows="3" placeholder="Descripcion detallada del producto..."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Email de contacto</label>
+                            <input type="email" class="form-control" placeholder="proveedor@ejemplo.com">
+                        </div>
+                        <div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox"> <span>Requiere certificacion</span>
+                            </label>
+                        </div>
+                        <div class="d-flex justify-content-end gap-sm mt-lg">
+                            <button class="btn btn-secondary">Cancelar</button>
+                            <button class="btn btn-primary"><i class='bx bx-save'></i> Guardar</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================================================
+                 SECCION: ALERTAS
+                 ============================================================ -->
+            <div class="demo-section">
+                <h2><i class='bx bxs-bell'></i> Alertas</h2>
+                <div class="alert alert-success"><i class='bx bx-check-circle'></i> Solicitud aprobada correctamente.</div>
+                <div class="alert alert-danger"><i class='bx bx-x-circle'></i> Error al procesar la solicitud. Intente nuevamente.</div>
+                <div class="alert alert-warning"><i class='bx bx-error'></i> La cotizacion vence en 3 dias.</div>
+                <div class="alert alert-info"><i class='bx bx-info-circle'></i> Se han encontrado 15 productos que coinciden.</div>
+            </div>
+
+            <!-- ============================================================
+                 SECCION: DRAWER DEMO
+                 ============================================================ -->
+            <div class="demo-section">
+                <h2><i class='bx bxs-dock-right'></i> Drawer (Panel Lateral)</h2>
+                <p style="margin-bottom:1rem">Los drawers se usan para mostrar detalles sin salir de la pagina.</p>
+                <div class="demo-row">
+                    <button class="btn btn-primary" onclick="abrirDrawer()">
+                        <i class='bx bx-right-arrow-alt'></i> Abrir Drawer Derecho
+                    </button>
+                    <button class="btn btn-accent" onclick="abrirDrawerIzq()">
+                        <i class='bx bx-left-arrow-alt'></i> Abrir Drawer Izquierdo
+                    </button>
+                </div>
+            </div>
+
+            <!-- ============================================================
+                 SECCION: TIMELINE
+                 ============================================================ -->
+            <div class="demo-section">
+                <h2><i class='bx bxs-time'></i> Timeline (Historial)</h2>
+                <div class="card card-primary" style="max-width:500px">
+                    <div class="card-body">
+                        <div class="timeline">
+                            <div class="timeline-evento">
+                                <div class="timeline-icono" style="background:var(--color-success)"><i class='bx bx-check'></i></div>
+                                <div class="timeline-contenido">
+                                    <div>
+                                        <div class="timeline-label" style="color:var(--color-success)">Aprobada</div>
+                                        <div class="timeline-detalle">Aprobado por: Gerencia General</div>
+                                    </div>
+                                    <div class="timeline-fecha">17/04/2026 10:30</div>
+                                </div>
+                            </div>
+                            <div class="timeline-evento">
+                                <div class="timeline-icono" style="background:#2196F3"><i class='bx bx-send'></i></div>
+                                <div class="timeline-contenido">
+                                    <div>
+                                        <div class="timeline-label" style="color:#2196F3">Enviada</div>
+                                        <div class="timeline-detalle">Enviada a compras</div>
+                                    </div>
+                                    <div class="timeline-fecha">16/04/2026 15:00</div>
+                                </div>
+                            </div>
+                            <div class="timeline-evento">
+                                <div class="timeline-icono" style="background:var(--color-warning)"><i class='bx bx-time'></i></div>
+                                <div class="timeline-contenido">
+                                    <div>
+                                        <div class="timeline-label" style="color:#b8860b">Creada</div>
+                                        <div class="timeline-detalle">Creada por: Juan Calvopina</div>
+                                    </div>
+                                    <div class="timeline-fecha">15/04/2026 09:15</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================================================
+                 SECCION: STEPPER
+                 ============================================================ -->
+            <div class="demo-section">
+                <h2><i class='bx bxs-flag-alt'></i> Stepper (Proceso)</h2>
+                <div class="card card-primary">
+                    <div class="card-body">
+                        <div class="stepper">
+                            <div class="stepper-paso-wrapper">
+                                <div class="stepper-paso-contenido">
+                                    <div class="stepper-icono" style="background:var(--color-success); color:white"><i class='bx bx-check'></i></div>
+                                    <div class="stepper-label">Solicitud</div>
+                                </div>
+                            </div>
+                            <div class="stepper-linea" style="background:var(--color-success)"></div>
+                            <div class="stepper-paso-wrapper">
+                                <div class="stepper-paso-contenido">
+                                    <div class="stepper-icono" style="background:var(--color-success); color:white"><i class='bx bx-check'></i></div>
+                                    <div class="stepper-label">Aprobacion</div>
+                                </div>
+                            </div>
+                            <div class="stepper-linea" style="background:var(--color-success)"></div>
+                            <div class="stepper-paso-wrapper">
+                                <div class="stepper-paso-contenido">
+                                    <div class="stepper-icono" style="background:var(--color-primary); color:white"><i class='bx bx-loader-alt'></i></div>
+                                    <div class="stepper-label" style="font-weight:700; color:var(--color-primary)">Cotizacion</div>
+                                </div>
+                            </div>
+                            <div class="stepper-linea" style="background:var(--color-border)"></div>
+                            <div class="stepper-paso-wrapper">
+                                <div class="stepper-paso-contenido">
+                                    <div class="stepper-icono" style="background:var(--color-border); color:var(--color-text-secondary)">4</div>
+                                    <div class="stepper-label" style="color:var(--color-text-muted)">Orden</div>
+                                </div>
+                            </div>
+                            <div class="stepper-linea" style="background:var(--color-border)"></div>
+                            <div class="stepper-paso-wrapper">
+                                <div class="stepper-paso-contenido">
+                                    <div class="stepper-icono" style="background:var(--color-border); color:var(--color-text-secondary)">5</div>
+                                    <div class="stepper-label" style="color:var(--color-text-muted)">Recepcion</div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================================================
+                 SECCION: PALETA DE COLORES
+                 ============================================================ -->
+            <div class="demo-section">
+                <h2><i class='bx bxs-palette'></i> Paleta de Colores del Tema Activo</h2>
+                <div class="color-palette">
+                    <div class="color-swatch">
+                        <div class="color-swatch-box" style="background:var(--color-primary)"></div>
+                        <div class="color-swatch-info"><strong>Primary</strong><span>--color-primary</span></div>
+                    </div>
+                    <div class="color-swatch">
+                        <div class="color-swatch-box" style="background:var(--color-accent)"></div>
+                        <div class="color-swatch-info"><strong>Accent</strong><span>--color-accent</span></div>
+                    </div>
+                    <div class="color-swatch">
+                        <div class="color-swatch-box" style="background:var(--color-accent-2)"></div>
+                        <div class="color-swatch-info"><strong>Accent 2</strong><span>--color-accent-2</span></div>
+                    </div>
+                    <div class="color-swatch">
+                        <div class="color-swatch-box" style="background:var(--color-bg-dark)"></div>
+                        <div class="color-swatch-info"><strong>BG Dark</strong><span>--color-bg-dark</span></div>
+                    </div>
+                    <div class="color-swatch">
+                        <div class="color-swatch-box" style="background:var(--color-bg-theme-light)"></div>
+                        <div class="color-swatch-info"><strong>BG Light</strong><span>--color-bg-theme-light</span></div>
+                    </div>
+                    <div class="color-swatch">
+                        <div class="color-swatch-box" style="background:var(--color-success)"></div>
+                        <div class="color-swatch-info"><strong>Success</strong><span>--color-success</span></div>
+                    </div>
+                    <div class="color-swatch">
+                        <div class="color-swatch-box" style="background:var(--color-danger)"></div>
+                        <div class="color-swatch-info"><strong>Danger</strong><span>--color-danger</span></div>
+                    </div>
+                    <div class="color-swatch">
+                        <div class="color-swatch-box" style="background:var(--color-warning)"></div>
+                        <div class="color-swatch-info"><strong>Warning</strong><span>--color-warning</span></div>
+                    </div>
+                    <div class="color-swatch">
+                        <div class="color-swatch-box" style="background:var(--color-info)"></div>
+                        <div class="color-swatch-info"><strong>Info</strong><span>--color-info</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ============================================================
+                 SECCION: TAGS
+                 ============================================================ -->
+            <div class="demo-section">
+                <h2><i class='bx bxs-purchase-tag'></i> Tags</h2>
+                <div class="demo-row">
+                    <span class="tag">Repuesto <button class="tag-remove">&times;</button></span>
+                    <span class="tag">Urgente <button class="tag-remove">&times;</button></span>
+                    <span class="tag">Importacion <button class="tag-remove">&times;</button></span>
+                </div>
+                <h3 class="mt-lg">Certificaciones (Badge Pill)</h3>
+                <div class="demo-row">
+                    <span class="badge-pill">ISO 9001</span>
+                    <span class="badge-pill" style="background:var(--color-primary)">HACCP</span>
+                    <span class="badge-pill" style="background:var(--color-info)">BPM</span>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- ================================================================
+         DRAWER DERECHO (Detalle)
+         ================================================================ -->
+    <div class="drawer-overlay" id="drawerOverlay" onclick="cerrarDrawer()"></div>
+    <div class="drawer" id="drawerDerecho">
+        <div class="drawer-header">
+            <div class="drawer-header-top">
+                <h2><i class='bx bxs-package'></i> Detalle del Producto</h2>
+                <button class="drawer-close" onclick="cerrarDrawer()"><i class='bx bx-x'></i></button>
+            </div>
+            <div class="drawer-summary">
+                <div>
+                    <p style="margin:0 0 4px; font-size:0.9rem; color:#6c757d; font-weight:500">SKU-001</p>
+                    <p style="margin:0; font-size:1rem; font-weight:600; color:#212529">Aceite Hidraulico ISO 68</p>
+                </div>
+                <div class="d-flex gap-sm">
+                    <button class="btn-action" style="background:var(--color-warning)"><i class='bx bx-hide'></i></button>
+                    <button class="btn-action" style="background:var(--color-danger)"><i class='bx bx-trash'></i></button>
+                </div>
+            </div>
+        </div>
+        <div class="drawer-content">
+            <div class="drawer-section">
+                <h3><i class='bx bx-info-circle'></i> Informacion General</h3>
+                <div class="detail-grid">
+                    <div class="detail-field">
+                        <label>Nombre</label>
+                        <span>Aceite Hidraulico ISO 68</span>
+                    </div>
+                    <div class="detail-field">
+                        <label>SKU</label>
+                        <span>SKU-001</span>
+                    </div>
+                    <div class="detail-field">
+                        <label>Categoria</label>
+                        <span>Lubricantes</span>
+                    </div>
+                    <div class="detail-field">
+                        <label>Marca</label>
+                        <span>Mobil</span>
+                    </div>
+                    <div class="detail-field">
+                        <label>Estado</label>
+                        <span class="badge badge-activo">Activo</span>
+                    </div>
+                    <div class="detail-field">
+                        <label>Precio</label>
+                        <span>$125.50</span>
+                    </div>
+                    <div class="detail-field detail-field-full">
+                        <label>Descripcion</label>
+                        <span>Aceite hidraulico de alto rendimiento para sistemas industriales de alta presion. Viscosidad ISO 68.</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="drawer-section">
+                <h3><i class='bx bx-group'></i> Proveedores</h3>
+                <div class="d-flex flex-column gap-base">
+                    <div class="drawer-subcard">
+                        <h4><i class='bx bx-building'></i> Distribuidora Industrial S.A.</h4>
+                        <div class="detail-grid">
+                            <div class="detail-field">
+                                <label>RUC</label>
+                                <span>1790564321001</span>
+                            </div>
+                            <div class="detail-field">
+                                <label>Telefono</label>
+                                <span>02-2567890</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="drawer-section" style="background:var(--color-bg-light); border-top-color:#6c757d">
+                <h3 style="color:#6c757d"><i class='bx bx-history'></i> Auditoria</h3>
+                <div class="timeline">
+                    <div class="timeline-evento">
+                        <div class="timeline-icono" style="background:var(--color-success)"><i class='bx bx-check'></i></div>
+                        <div class="timeline-contenido">
+                            <div class="timeline-label">Creado</div>
+                            <div class="timeline-fecha">15/04/2026</div>
+                        </div>
+                    </div>
+                    <div class="timeline-evento">
+                        <div class="timeline-icono" style="background:#2196F3"><i class='bx bx-edit'></i></div>
+                        <div class="timeline-contenido">
+                            <div class="timeline-label">Modificado</div>
+                            <div class="timeline-fecha">17/04/2026</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="drawer-footer">
+            <button class="btn btn-secondary" onclick="cerrarDrawer()"><i class='bx bx-x'></i> Cerrar</button>
+            <button class="btn btn-primary"><i class='bx bx-edit'></i> Editar</button>
+        </div>
+    </div>
+
+    <!-- ================================================================
+         DRAWER IZQUIERDO
+         ================================================================ -->
+    <div class="drawer-overlay" id="drawerOverlayIzq" onclick="cerrarDrawerIzq()"></div>
+    <div class="drawer drawer-left" id="drawerIzquierdo">
+        <div class="drawer-header">
+            <div class="drawer-header-top">
+                <h2><i class='bx bxs-file-doc'></i> Cotizacion</h2>
+                <button class="drawer-close" onclick="cerrarDrawerIzq()"><i class='bx bx-x'></i></button>
+            </div>
+        </div>
+        <div class="drawer-content">
+            <div class="drawer-section">
+                <h3><i class='bx bx-info-circle'></i> Datos de la Cotizacion</h3>
+                <div class="detail-grid">
+                    <div class="detail-field">
+                        <label>Proveedor</label>
+                        <span>Distribuidora Industrial S.A.</span>
+                    </div>
+                    <div class="detail-field">
+                        <label>Fecha</label>
+                        <span>17/04/2026</span>
+                    </div>
+                    <div class="detail-field">
+                        <label>Total</label>
+                        <span>$2,450.00</span>
+                    </div>
+                    <div class="detail-field">
+                        <label>Estado</label>
+                        <span class="badge badge-cotizado">Cotizado</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="drawer-footer">
+            <button class="btn btn-secondary" onclick="cerrarDrawerIzq()">Cerrar</button>
+            <button class="btn btn-success"><i class='bx bx-check'></i> Aceptar</button>
+        </div>
+    </div>
+
+    <!-- ================================================================
+         JAVASCRIPT
+         ================================================================ -->
+    <script>
+        /* === CAMBIAR TEMA === */
+        function cambiarTema(tema) {
+            document.documentElement.className = tema;
+            const logos = {
+                'provefrut-theme': '../LogoProvefrut.png',
+                'procongelados-theme': '../LogoProcongelados.png',
+                'nintanga-theme': '../LogoNintanga.png'
+            };
+            document.getElementById('logo-img').src = logos[tema] || logos['provefrut-theme'];
+        }
+
+        /* === MENU MOBILE === */
+        function toggleMobileMenu() {
+            document.getElementById('navItems').classList.add('mobile-open');
+            document.getElementById('mobileOverlay').classList.add('active');
+            document.getElementById('mobileMenuBtn').classList.add('menu-open');
+        }
+
+        function cerrarMobileMenu() {
+            document.getElementById('navItems').classList.remove('mobile-open');
+            document.getElementById('mobileOverlay').classList.remove('active');
+            document.getElementById('mobileMenuBtn').classList.remove('menu-open');
+        }
+
+        /* === SUBMENUS === */
+        function toggleSubmenu(btn) {
+            const submenu = btn.nextElementSibling;
+            const arrow = btn.querySelector('.arrow');
+            const isOpen = submenu.style.display !== 'none';
+
+            // Cerrar todos los submenus
+            document.querySelectorAll('.nav-submenu').forEach(s => s.style.display = 'none');
+            document.querySelectorAll('.arrow').forEach(a => a.classList.remove('rotated'));
+
+            if (!isOpen) {
+                submenu.style.display = 'block';
+                arrow.classList.add('rotated');
+            }
+        }
+
+        // Cerrar submenus al click fuera (solo desktop)
+        document.addEventListener('click', function(e) {
+            if (window.innerWidth > 768 && !e.target.closest('.nav-item')) {
+                document.querySelectorAll('.nav-submenu').forEach(s => s.style.display = 'none');
+                document.querySelectorAll('.arrow').forEach(a => a.classList.remove('rotated'));
+            }
+        });
+
+        // Cerrar menu mobile con Escape
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') cerrarMobileMenu();
+        });
+
+        /* === DRAWERS === */
+        function abrirDrawer() {
+            document.getElementById('drawerOverlay').classList.add('active');
+            document.getElementById('drawerDerecho').classList.add('open');
+        }
+
+        function cerrarDrawer() {
+            document.getElementById('drawerOverlay').classList.remove('active');
+            document.getElementById('drawerDerecho').classList.remove('open');
+        }
+
+        function abrirDrawerIzq() {
+            document.getElementById('drawerOverlayIzq').classList.add('active');
+            document.getElementById('drawerIzquierdo').classList.add('open');
+        }
+
+        function cerrarDrawerIzq() {
+            document.getElementById('drawerOverlayIzq').classList.remove('active');
+            document.getElementById('drawerIzquierdo').classList.remove('open');
+        }
+    </script>
+
+</body>
+</html>
