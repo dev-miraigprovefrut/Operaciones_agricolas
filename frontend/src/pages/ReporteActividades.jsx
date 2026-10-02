@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import Swal from 'sweetalert2'
 import ExcelJS from 'exceljs'
-import HoraRueda from '../components/HoraRueda'
+import TablaJornada from '../components/TablaJornada'
 import { CONFIG_JORNADA_DEFECTO, armarJornadas, totalizarJornadas, diaISO, tipoDia, feriadoDe } from '../utils/jornadas'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8007'
@@ -98,10 +98,13 @@ function ReporteActividades() {
   const esRevisable = (r) => puedeRevisar && r.estado === 'Finalizado' && r.revision_estado !== 'REVISADO'
   const cantidadSeleccion = Object.values(seleccion).filter(Boolean).length
 
-  const editarHora = (r, campo, hhmm) => {
+  // Callbacks estables (useCallback) para que TablaJornada (memo) no se redibuje entera en cada clic
+  const editarHora = useCallback((r, campo, hhmm) => {
     setEdiciones(prev => ({ ...prev, [r.id]: { ...(prev[r.id] || {}), [campo]: hhmm } }))
     setSeleccion(prev => ({ ...prev, [r.id]: true }))   // al corregir una hora se marca la fila
-  }
+  }, [])
+  const toggleSeleccion = useCallback((id) => setSeleccion(prev => ({ ...prev, [id]: !prev[id] })), [])
+  const marcarSeleccion = useCallback((ids, v) => setSeleccion(prev => { const n = { ...prev }; ids.forEach(id => { n[id] = v }); return n }), [])
 
   const guardarRevision = async () => {
     const ids = Object.keys(seleccion).filter(id => seleccion[id]).map(Number)
@@ -250,7 +253,7 @@ function ReporteActividades() {
     return segmentos
   }
 
-  const eventos = getEventos()
+  const eventos = tabActiva === 'calendario' ? getEventos() : []
 
   // Calcular tiempos desde fecha_historial
   const calcularTiempos = (historial, estado) => {
@@ -765,6 +768,12 @@ function ReporteActividades() {
     URL.revokeObjectURL(url)
   }
 
+  // El reporte se calcula solo cuando cambian los datos o los filtros (no al marcar checks)
+  const operadoresReporte = useMemo(
+    () => tabActiva === 'reporte' ? getReporteOperadores() : [],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tabActiva, registros, cfgJornada, reporteFechaDesde, reporteFechaHasta, reporteOperador, reporteActividad, reporteEquipo, reporteRevision, reporteBusqueda])
+
   const diasAMostrar = vista === 'semana' ? diasSemana : [fechaActual]
 
   if (loading) {
@@ -903,7 +912,7 @@ function ReporteActividades() {
           {/* Tabla de reporte */}
           <div className="reporte-tabla-container">
             {(() => {
-              const operadores = getReporteOperadores()
+              const operadores = operadoresReporte
 
               if (operadores.length === 0) {
                 return <p style={{textAlign: 'center', color: 'var(--color-text-secondary)', padding: '2rem'}}>No hay actividades en el rango seleccionado</p>
@@ -968,91 +977,10 @@ function ReporteActividades() {
                           </div>
                           {chipsHoras(j)}
                         </div>
-                        <div style={{overflowX: 'auto'}}>
-                          <table className="tabla" style={{fontSize: '0.78rem'}}>
-                            <thead>
-                              <tr>
-                                <th>Tractor</th>
-                                <th>Actividad</th>
-                                <th>Subactividad</th>
-                                <th>Lote</th>
-                                <th>Hacienda</th>
-                                <th>Inicio</th>
-                                <th>Fin</th>
-                                <th>T. Trabajado</th>
-                                <th>T. Paro</th>
-                                <th>Estado</th>
-                                {(() => {
-                                  const revisables = regsDia.filter(esRevisable)
-                                  if (!puedeRevisar || !revisables.length) return <th style={{whiteSpace: 'nowrap'}}>Revisión</th>
-                                  const todas = revisables.every(r => seleccion[r.id])
-                                  const marcarTodas = (v) => setSeleccion(prev => { const n = { ...prev }; revisables.forEach(r => { n[r.id] = v }); return n })
-                                  // Toda la celda es clicable (no solo el cuadro)
-                                  return (
-                                    <th className="celda-check" onClick={() => marcarTodas(!todas)} title="Marcar todas las de la jornada">
-                                      <span>
-                                        <input type="checkbox" checked={todas}
-                                          onClick={e => e.stopPropagation()}
-                                          onChange={e => marcarTodas(e.target.checked)} />
-                                        Revisión
-                                      </span>
-                                    </th>
-                                  )
-                                })()}
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {regsDia.map(r => {
-                                const inicio = eventoInicio(r)
-                                const fin = eventoFin(r)
-                                // dd/mm cuando el evento cae en otro dia que el inicio de la jornada
-                                const otroDia = (ev) => ev && diaISO(new Date(ev.fecha)) !== j.dia ? fmtDiaMes(new Date(ev.fecha)) : null
-                                return (
-                                  <tr key={r.id}>
-                                    <td>{r.tractor || '-'}</td>
-                                    <td><strong>{r.actividad === 'APOYOS GENERALES' ? (r.subactividad || 'Apoyo General') : (r.actividad || '-')}</strong></td>
-                                    <td>{r.actividad === 'APOYOS GENERALES' ? 'Apoyo General' : (r.subactividad || '-')}</td>
-                                    <td>{r.lote || '-'}</td>
-                                    <td>{r.hacienda || '-'}</td>
-                                    {[['inicio', inicio], ['fin', fin]].map(([campo, ev]) => (
-                                      <td key={campo} style={{whiteSpace: 'nowrap'}}>
-                                        {otroDia(ev) && <span style={{display: 'block', fontSize: '0.65rem', color: '#e67e22', fontWeight: 600}} title="Otro día que el inicio de la jornada">{otroDia(ev)}</span>}
-                                        {esRevisable(r) && ev ? (
-                                          <HoraRueda
-                                            value={ediciones[r.id]?.[campo] || horaDe(ev.fecha)}
-                                            modificado={!!ediciones[r.id]?.[campo] && ediciones[r.id][campo] !== horaDe(ev.fecha)}
-                                            onChange={hhmm => editarHora(r, campo, hhmm)} />
-                                        ) : (ev ? fmtHora(new Date(ev.fecha)) : '-')}
-                                      </td>
-                                    ))}
-                                    <td style={{color: '#28a745', fontWeight: 500}}>{fmtMin(r.tiempo_real)}</td>
-                                    <td style={{color: '#dc3545', fontWeight: 500}}>{fmtMin(r.tiempo_paro)}</td>
-                                    <td><span style={{background: r.estado === 'Finalizado' ? '#6c757d' : r.estado === 'Ejecutándose' ? '#28a745' : '#ffc107', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem'}}>{r.estado}</span></td>
-                                    <td className={esRevisable(r) && r.revision_estado !== 'REVISADO' ? 'celda-check' : undefined}
-                                      onClick={esRevisable(r) ? () => setSeleccion(prev => ({ ...prev, [r.id]: !prev[r.id] })) : undefined}
-                                      title={esRevisable(r) ? 'Marcar para guardar como revisada' : undefined}>
-                                      {r.revision_estado === 'REVISADO' ? (
-                                        <span title={`Revisado por ${r.revisado_por_nombre || r.revisado_por || '-'} el ${fmtFechaHora(r.fecha_revision)}`}
-                                          style={{background: '#1b5e20', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem', whiteSpace: 'nowrap', cursor: 'help'}}>
-                                          <i className='bx bxs-lock-alt'></i> Revisado
-                                        </span>
-                                      ) : esRevisable(r) ? (
-                                        <span>
-                                          <input type="checkbox" checked={!!seleccion[r.id]}
-                                            onClick={e => e.stopPropagation()}
-                                            onChange={e => setSeleccion(prev => ({ ...prev, [r.id]: e.target.checked }))} />
-                                          No revisado
-                                        </span>
-                                      ) : (
-                                        <span style={{color: 'var(--color-text-secondary)', fontSize: '0.7rem', whiteSpace: 'nowrap'}}>No revisado</span>
-                                      )}
-                                    </td>
-                                  </tr>
-                                )
-                              })}
-                            </tbody>
-                          </table>
-                        </div>
+                        <TablaJornada j={j} puedeRevisar={puedeRevisar}
+                          sel={regsDia.filter(r => seleccion[r.id]).map(r => r.id).join(',')}
+                          ed={regsDia.some(r => ediciones[r.id]) ? JSON.stringify(Object.fromEntries(regsDia.filter(r => ediciones[r.id]).map(r => [r.id, ediciones[r.id]]))) : ''}
+                          onToggle={toggleSeleccion} onMarcar={marcarSeleccion} onEditar={editarHora} />
                       </div>
                     )
                   })}
