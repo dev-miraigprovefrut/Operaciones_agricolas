@@ -2,7 +2,8 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
-import { cargarSesion, renovarSesion, esTractorista, cerrarPestana, HUB_LOGIN_URL, HUB_URL } from './services/sesion.js'
+import { API_URL, cargarSesion, renovarSesion, esTractorista, cerrarPestana, HUB_LOGIN_URL, HUB_URL } from './services/sesion.js'
+import { huboActividad, alVolverActividad } from './services/actividad.js'
 
 // Enlaces viejos del HUB traen #token=... en la URL: ya no se usa (la sesion
 // va en la cookie del HUB), solo se limpia.
@@ -45,8 +46,15 @@ function sesionExpirada() {
 function renderizar() {
   createRoot(document.getElementById('root')).render(<StrictMode><App /></StrictMode>)
   window.addEventListener('session-expired', sesionExpirada)
-  // Mantener viva la cookie del HUB aunque no haya clics (pestaña abierta todo el dia).
-  setInterval(() => { renovarSesion() }, 20 * 60 * 1000)
+  // Sesion por INACTIVIDAD (10 h): la cookie del HUB se renueva solo si el
+  // usuario hizo algo (cada 20 min mientras trabaja, y al volver tras estar
+  // inactivo). Si al volver ya vencio, se cierra la pestaña.
+  setInterval(() => { if (huboActividad(20 * 60 * 1000)) renovarSesion() }, 20 * 60 * 1000)
+  alVolverActividad(async () => {
+    if (esTractorista()) return
+    const r = await fetch(`${API_URL}/api/auth/me`)
+    if (r.status === 401 && !(await renovarSesion())) sesionExpirada()
+  })
 }
 
 async function iniciar() {

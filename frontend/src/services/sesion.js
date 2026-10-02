@@ -11,6 +11,7 @@
  *    de pantalla que ya usaban las paginas (nombre, rol, permisos...).
  */
 import { verComoActivo } from './verComo'
+import { huboActividad } from './actividad'
 
 export const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8007').replace(/\/$/, '')
 export const HUB_API_URL = (import.meta.env.VITE_HUB_API_URL || 'https://hubbk.miraigprovefrut.com/api').replace(/\/$/, '')
@@ -44,6 +45,9 @@ window.fetch = async (input, init = {}) => {
   if (simulado) headers.set('X-Ver-Como', simulado)
   const opciones = { ...init, headers, credentials: 'include' }
   let res = await fetchOriginal(input, opciones)
+  // Sin actividad reciente no se renueva (la sesion vence a las 10 h sin
+  // actividad); al volver el usuario se renueva en main.jsx.
+  if (res.status === 401 && !esTractorista() && !huboActividad()) return res
   if (res.status === 401 && !RUTAS_SIN_REINTENTO.some(r => url.includes(r))) {
     if (await renovarSesion()) {
       res = await fetchOriginal(input, opciones)
