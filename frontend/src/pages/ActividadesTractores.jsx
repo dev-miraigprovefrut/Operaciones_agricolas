@@ -14,6 +14,9 @@ function ActividadesTractores() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [currentPage, setCurrentPage] = useState(1)
+  // Equipo del catalogo: actividades de Tractores o de Drones (columna `equipo`)
+  const [equipo, setEquipo] = useState('Tractores')
+  const [todas, setTodas] = useState([])
 
   // Cargar actividades desde el backend
   const fetchActividades = async () => {
@@ -22,11 +25,11 @@ function ActividadesTractores() {
       const response = await fetch(`${API_URL}/api/actividades`)
       if (!response.ok) throw new Error('Error al cargar actividades')
       const data = await response.json()
-      // Filtrar solo las de equipo Tractores y mapear formato
-      const actividadesTractores = data
-        .filter(act => act.equipo === 'Tractores')
+      // Todas (Tractores y Drones); se filtran por el equipo elegido
+      const todasMapeadas = data
         .map(act => ({
           id: act.id,
+          equipo: act.equipo || 'Tractores',
           codigo: act.codigo_act,
           nombre: act.actividad,
           tipo: act.tipo,
@@ -35,7 +38,7 @@ function ActividadesTractores() {
             nombre: sub
           }))
         }))
-      setActividades(actividadesTractores)
+      setTodas(todasMapeadas)
       setError(null)
     } catch (err) {
       console.error('Error:', err)
@@ -48,6 +51,11 @@ function ActividadesTractores() {
   useEffect(() => {
     fetchActividades()
   }, [])
+
+  useEffect(() => {
+    setActividades(todas.filter(a => a.equipo === equipo))
+    setCurrentPage(1)
+  }, [todas, equipo])
 
   const openDrawerCrear = () => {
     setDrawerMode('crear-actividad')
@@ -75,7 +83,7 @@ function ActividadesTractores() {
           body: JSON.stringify({
             actividad: data.nombre.toUpperCase(),
             tipo: data.tipo,
-            equipo: 'Tractores',
+            equipo,
             subactividades: subactividadesArray,
             cantidad: 0
           })
@@ -88,7 +96,7 @@ function ActividadesTractores() {
           body: JSON.stringify({
             actividad: data.nombre.toUpperCase(),
             tipo: data.tipo,
-            equipo: 'Tractores',
+            equipo,
             subactividades: subactividadesArray,
             cantidad: 0
           })
@@ -165,8 +173,19 @@ function ActividadesTractores() {
       {/* Page Header */}
       <div className="page-header">
         <div>
-          <h1><i className='bx bxs-cog'></i> Actividades de Tractores</h1>
+          <h1><i className='bx bxs-cog'></i> Actividades de {equipo === 'Drones' ? 'Drones' : 'Tractores'}</h1>
           <p className="page-subtitle">Gestión de actividades y subactividades agrícolas</p>
+          {/* Equipo: cada uno tiene sus propias actividades */}
+          <div style={{display: 'inline-flex', marginTop: '0.5rem', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', overflow: 'hidden'}}>
+            {[['Tractores', 'bx-car'], ['Drones', 'bx-paper-plane']].map(([eq, ic]) => (
+              <button key={eq} onClick={() => setEquipo(eq)}
+                style={{padding: '0.4rem 1rem', fontSize: '0.85rem', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.35rem',
+                  backgroundColor: equipo === eq ? 'var(--color-primary)' : 'var(--color-bg-light)',
+                  color: equipo === eq ? 'var(--color-on-primary)' : 'var(--color-text-secondary)'}}>
+                <i className={`bx ${ic}`}></i> {eq} ({todas.filter(a => a.equipo === eq).length})
+              </button>
+            ))}
+          </div>
         </div>
         <div className="page-actions">
           <button className="btn btn-primary" onClick={openDrawerCrear}>

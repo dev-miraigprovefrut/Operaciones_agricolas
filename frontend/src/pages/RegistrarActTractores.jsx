@@ -6,7 +6,11 @@ import useOnlineStatus from '../services/useOnlineStatus'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8007'
 
-function RegistrarActTractores() {
+function RegistrarActTractores({ equipo = 'Tractores' }) {
+  // Bitacora Tractor (equipo='Tractores') o Bitacora Dron (equipo='Drones'):
+  // mismo mecanismo. El dron no lleva horometro, apero ni (por ahora) checklist.
+  const esDron = equipo === 'Drones'
+  const nombreEquipo = esDron ? 'Dron' : 'Tractor'
   // Obtener operador desde localStorage
   const operadorActual = localStorage.getItem('usuario_nombre') || ''
   const esAdmin = (() => { try { return JSON.parse(localStorage.getItem('user_permisos_operagricola') || '{}').es_admin } catch { return false } })()
@@ -73,6 +77,7 @@ function RegistrarActTractores() {
   const [showChecklist, setShowChecklist] = useState(false)
   const [checklist, setChecklist] = useState({})
   const [procesando, setProcesando] = useState(false)
+  const [dronesUsados, setDronesUsados] = useState([])   // sugerencias hasta que exista el catalogo de Activos
 
   // Items del checklist por sección
   const checklistItems = {
@@ -119,6 +124,19 @@ function RegistrarActTractores() {
   const allChecked = Object.values(checklist).length > 0 && Object.values(checklist).every(v => v)
 
   const handleContinuar = () => {
+    if (esDron) {
+      // El dron se escribe o se elige de los ya usados (el catalogo vendra de Activos).
+      // PENDIENTE: checklist del dron (operaciones enviara el listado).
+      const dron = formData.tractor.trim().toUpperCase()
+      if (!dron) {
+        advertencia({ titulo: 'Dron requerido', texto: 'Escriba o elija el dron.' })
+        return
+      }
+      setFormData(prev => ({ ...prev, tractor: dron, apero: '', horometro: '' }))
+      setShowTractorList(false)
+      setCardActiva('actividad')
+      return
+    }
     // Validar que el tractor exista en la lista
     const tractorValido = tractores.some(t => `${t.marca} ${t.modelo} - ${t.numeracion}` === formData.tractor)
     if (!tractorValido) {
@@ -279,13 +297,15 @@ function RegistrarActTractores() {
 
       const [registrosRes, tractoresRes, aperosRes, actividadesRes, checksRes] = await Promise.all([
         fetchWithOffline(`${API_URL}/api/registros`, 'registros'),
-        fetchWithOffline(`${API_URL}/api/tractores`, 'tractores'),
-        fetchWithOffline(`${API_URL}/api/aperos`, 'aperos'),
+        esDron ? Promise.resolve({ data: [] }) : fetchWithOffline(`${API_URL}/api/tractores`, 'tractores'),
+        esDron ? Promise.resolve({ data: [] }) : fetchWithOffline(`${API_URL}/api/aperos`, 'aperos'),
         fetchWithOffline(`${API_URL}/api/actividades`, 'actividades'),
-        fetchWithOffline(`${API_URL}/api/checks`, 'checks')
+        esDron ? Promise.resolve({ data: [] }) : fetchWithOffline(`${API_URL}/api/checks`, 'checks')
       ])
 
-      const registrosData = registrosRes.data
+      // Solo los registros de este equipo (los viejos, sin `equipo`, son de tractores)
+      const registrosData = (registrosRes.data || []).filter(r => (r.equipo || 'Tractores') === equipo)
+      if (esDron) setDronesUsados([...new Set(registrosData.map(r => r.tractor).filter(Boolean))].sort())
       const tractoresData = tractoresRes.data
       const aperosData = aperosRes.data
       const actividadesData = actividadesRes.data
@@ -308,7 +328,7 @@ function RegistrarActTractores() {
           : checksData.filter(c => c.estado === 'Activo')
       setChecksActivos(misChecksActivos)
       // Separar actividades culturales y apoyos generales
-      const tractorActs = actividadesData.filter(a => a.equipo === 'Tractores')
+      const tractorActs = actividadesData.filter(a => (a.equipo || 'Tractores') === equipo)
       setActividades(tractorActs.filter(a => a.tipo === 'Actividades Culturales'))
       setApoyosGenerales(tractorActs.filter(a => a.tipo === 'Apoyos Generales'))
 
@@ -351,7 +371,7 @@ function RegistrarActTractores() {
             ordenCultivo: registroActivo.orden_cultivo || ''
           }))
           // Cargar subactividades disponibles
-          const tractorActs = actividadesData.filter(a => a.equipo === 'Tractores')
+          const tractorActs = actividadesData.filter(a => (a.equipo || 'Tractores') === equipo)
           if (registroActivo.actividad === 'APOYOS GENERALES') {
             setSubactividadesDisponibles(tractorActs.filter(a => a.tipo === 'Apoyos Generales').map(a => a.actividad))
           } else {
@@ -486,8 +506,8 @@ function RegistrarActTractores() {
       titulo: registroSeleccionado ? '¿Desea actualizar esta actividad?' : '¿Desea crear esta actividad?',
       html: `
         <div style="text-align:left; font-size:0.9rem; color: #ffffff !important;">
-          <p style="color:var(--color-bg-white);"><strong>Tractor:</strong> ${formData.tractor || '-'}</p>
-          <p style="color:var(--color-bg-white);"><strong>Apero:</strong> ${formData.apero || '-'}</p>
+          <p style="color:var(--color-bg-white);"><strong>${nombreEquipo}:</strong> ${formData.tractor || '-'}</p>
+          ${esDron ? '' : `<p style="color:var(--color-bg-white);"><strong>Apero:</strong> ${formData.apero || '-'}</p>`}
           <p style="color:var(--color-bg-white);"><strong>Lote:</strong> ${formData.lote || '-'}</p>
           <p style="color:var(--color-bg-white);"><strong>Hacienda:</strong> ${formData.hacienda || '-'}</p>
           <p style="color:var(--color-bg-white);"><strong>Actividad:</strong> ${formData.actividad || '-'}</p>
@@ -535,7 +555,8 @@ function RegistrarActTractores() {
             ubicacion,
             id_check: checkActivoGuardar?.id || null,
             tipo: formData.actividad === 'APOYOS GENERALES' || apoyosGenerales.some(a => a.actividad === formData.actividad) ? 'Apoyos Generales' : 'Actividades Culturales',
-            estado: 'Pendiente'
+            estado: 'Pendiente',
+            equipo
           })
         }, 'Crear actividad')
       }
@@ -610,7 +631,8 @@ function RegistrarActTractores() {
             ubicacion,
             id_check: checkActivoIniciar?.id || null,
             tipo: formData.actividad === 'APOYOS GENERALES' || apoyosGenerales.some(a => a.actividad === formData.actividad) ? 'Apoyos Generales' : 'Actividades Culturales',
-            estado: 'Ejecutándose'
+            estado: 'Ejecutándose',
+            equipo
           })
         }, 'Crear e iniciar actividad')
         if (res) nuevoRegistro = await res.json()
@@ -847,8 +869,8 @@ function RegistrarActTractores() {
           {/* Título sobre la tabla */}
           <div className="page-header" style={{marginBottom: '0.5rem'}}>
             <div>
-              <h1><i className='bx bxs-edit'></i> Registrar Actividad</h1>
-              <p className="page-subtitle">Registro de actividades de tractores</p>
+              <h1><i className='bx bxs-edit'></i> {esDron ? 'Bitácora Dron' : 'Bitácora Tractor'}</h1>
+              <p className="page-subtitle">Registro de actividades de {esDron ? 'drones' : 'tractores'}</p>
             </div>
           </div>
 
@@ -950,6 +972,7 @@ function RegistrarActTractores() {
                     alignItems: 'center'
                   }}>
                     <div style={{display: 'flex', alignItems: 'center', gap: '0.4rem'}}>
+                      {!esDron && (
                       <button
                         type="button"
                         onClick={async (e) => {
@@ -1001,7 +1024,8 @@ function RegistrarActTractores() {
                       >
                         <i className='bx bx-x'></i>
                       </button>
-                      <span><strong>{tractor}</strong> | {apero}{esAdmin && operadorDelTractor ? <span style={{marginLeft: '0.5rem', color: 'var(--color-primary)', fontWeight: 500}}> — {operadorDelTractor}</span> : null}</span>
+                      )}
+                      <span><strong>{tractor}</strong>{!esDron && <> | {apero}</>}{esAdmin && operadorDelTractor ? <span style={{marginLeft: '0.5rem', color: 'var(--color-primary)', fontWeight: 500}}> — {operadorDelTractor}</span> : null}</span>
                     </div>
                   </div>
                   <div style={{textAlign: 'center', marginBottom: '0.5rem'}}>
@@ -1097,7 +1121,7 @@ function RegistrarActTractores() {
               <div className="card-body" style={{overflow: 'visible'}}>
                 {/* Tractor */}
                 <div className="form-group" style={{position: 'relative'}}>
-                  <label className="form-label">Tractor <span className="required">*</span></label>
+                  <label className="form-label">{nombreEquipo} <span className="required">*</span></label>
                   <div style={{position: 'relative'}}>
                     <input
                       type="text"
@@ -1105,7 +1129,7 @@ function RegistrarActTractores() {
                       value={formData.tractor}
                       onChange={(e) => { setFormData(prev => ({...prev, tractor: e.target.value})); setShowTractorList(true) }}
                       onFocus={() => setShowTractorList(true)}
-                      placeholder="Escribir para buscar tractor..."
+                      placeholder={esDron ? 'Escriba o elija el dron...' : 'Escribir para buscar tractor...'}
                       autoComplete="off"
                       style={{paddingRight: formData.tractor ? '2.5rem' : '2rem'}}
                     />
@@ -1115,7 +1139,18 @@ function RegistrarActTractores() {
                       <i className='bx bx-chevron-down' style={{position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-secondary)', pointerEvents: 'none'}}></i>
                     )}
                   </div>
-                  {showTractorList && (
+                  {showTractorList && esDron && dronesUsados.length > 0 && (
+                    <div className="sugerencias-lista sugerencias-abajo">
+                      {dronesUsados
+                        .filter(d => !formData.tractor || d.toLowerCase().includes(formData.tractor.toLowerCase()))
+                        .map(d => (
+                          <div key={d} className="sugerencia-item" onClick={() => { setFormData(prev => ({...prev, tractor: d})); setShowTractorList(false) }}>
+                            {d}
+                          </div>
+                        ))}
+                    </div>
+                  )}
+                  {showTractorList && !esDron && (
                     <div className="sugerencias-lista sugerencias-abajo">
                       {[...tractores]
                         .sort((a, b) => `${a.marca} ${a.modelo}`.localeCompare(`${b.marca} ${b.modelo}`))
@@ -1153,6 +1188,7 @@ function RegistrarActTractores() {
                   )}
                 </div>
 
+                {!esDron && (<>
                 {/* Horómetro */}
                 <div className="form-group">
                   <label className="form-label">Horómetro Inicial</label>
@@ -1207,6 +1243,8 @@ function RegistrarActTractores() {
                   )}
                 </div>
 
+                </>)}
+
                 {/* Operador */}
                 {/* Operador (desde localStorage) */}
                 {operadorActual && (
@@ -1246,7 +1284,7 @@ function RegistrarActTractores() {
                     return
                   }
                   // Desactivar check del tractor actual pidiendo horómetro final
-                  if (formData.tractor) {
+                  if (formData.tractor && !esDron) {
                     const checkActual = checksActivos.find(c => c.tractor === formData.tractor)
                     const horInicial = checkActual?.horometro_inicial
                     const { value: horometroFinal } = await Swal.fire({
@@ -1290,6 +1328,7 @@ function RegistrarActTractores() {
                   </div>
                 </div>
                 {/* Cambiar apero sin cambiar tractor */}
+                {!esDron && (
                 <div style={{marginBottom: '0.75rem', position: 'relative'}}>
                   <label className="form-label" style={{fontSize: '0.8rem', marginBottom: '0.3rem'}}>Apero</label>
                   {!editandoApero ? (
@@ -1347,6 +1386,7 @@ function RegistrarActTractores() {
                     </div>
                   )}
                 </div>
+                )}
 
                 <form onSubmit={(e) => e.preventDefault()}>
                   {/* Lote y Hacienda */}

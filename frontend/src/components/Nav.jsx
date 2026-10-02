@@ -85,7 +85,7 @@ function Nav({ isOpen, onClose }) {
           )}
 
           {/* Registrar - solo si tiene algún permiso de registrar */}
-          {(tienePermiso('registrar_actividades') || tienePermiso('registrar_cosecha')) && (
+          {(tienePermiso('registrar_actividades') || tienePermiso('bitacora_dron') || tienePermiso('registrar_cosecha')) && (
             <li className="nav-item">
               <button className="nav-button" onClick={() => toggleSubmenu('registrar')}>
                 <i className='bx bxs-edit'></i>
@@ -95,7 +95,8 @@ function Nav({ isOpen, onClose }) {
               {openSubmenu === 'registrar' && (
                 <div className="nav-submenu">
                   <ul className="nav-submenu-items">
-                    {tienePermiso('registrar_actividades') && <li><Link to="/registrar/actividades" className="nav-submenu-link" onClick={closeMenus}><i className='bx bx-task'></i> Actividades</Link></li>}
+                    {tienePermiso('registrar_actividades') && <li><Link to="/registrar/actividades" className="nav-submenu-link" onClick={closeMenus}><i className='bx bx-task'></i> Bitácora Tractor</Link></li>}
+                    {tienePermiso('bitacora_dron') && <li><Link to="/registrar/dron" className="nav-submenu-link" onClick={closeMenus}><i className='bx bx-paper-plane'></i> Bitácora Dron</Link></li>}
                     {tienePermiso('registrar_cosecha') && <li><Link to="/registrar/cosecha" className="nav-submenu-link" onClick={closeMenus}><i className='bx bx-leaf'></i> Cosecha</Link></li>}
                   </ul>
                 </div>

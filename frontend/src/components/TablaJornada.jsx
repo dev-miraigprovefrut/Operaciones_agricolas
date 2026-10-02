@@ -17,7 +17,7 @@ const horaDe = (iso) => (iso || '').substring(11, 16)
 const eventoInicio = (r) => r.fecha_historial?.find(h => h.accion === 'inicio')
 const eventoFin = (r) => [...(r.fecha_historial || [])].reverse().find(h => h.accion === 'finalizado')
 
-function TablaJornada({ j, sel, ed, puedeRevisar, onToggle, onMarcar, onEditar, onEliminar }) {
+function TablaJornada({ j, sel, ed, puedeRevisar, onToggle, onMarcar, onEditar, onEliminar, etiquetaEquipo = 'Tractor' }) {
   const marcados = new Set(sel ? sel.split(',').map(Number) : [])
   const ediciones = ed ? JSON.parse(ed) : {}
   const esRevisable = (r) => puedeRevisar && r.estado === 'Finalizado' && r.revision_estado !== 'REVISADO'
@@ -34,7 +34,7 @@ function TablaJornada({ j, sel, ed, puedeRevisar, onToggle, onMarcar, onEditar, 
       <table className="tabla" style={{fontSize: '0.78rem'}}>
         <thead>
           <tr>
-            <th>Tractor</th>
+            <th>{etiquetaEquipo}</th>
             <th>Actividad</th>
             <th>Subactividad</th>
             <th>Lote</th>

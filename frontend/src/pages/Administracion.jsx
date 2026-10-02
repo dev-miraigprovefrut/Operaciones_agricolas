@@ -9,7 +9,8 @@ const MENU_PERMISOS = [
     label: 'Registrar',
     icon: 'bx bxs-edit',
     hijos: [
-      { key: 'registrar_actividades', label: 'Actividades', icon: 'bx bx-task' },
+      { key: 'registrar_actividades', label: 'Bitácora Tractor', icon: 'bx bx-task' },
+      { key: 'bitacora_dron', label: 'Bitácora Dron', icon: 'bx bx-paper-plane' },
       { key: 'registrar_cosecha', label: 'Cosecha', icon: 'bx bx-leaf' },
     ]
   },

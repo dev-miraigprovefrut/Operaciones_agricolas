@@ -42,6 +42,7 @@ function DefaultRedirect() {
   // Buscar la primera ruta a la que el usuario tiene acceso
   const rutasPorPermiso = {
     registrar_actividades: '/registrar/actividades',
+    bitacora_dron: '/registrar/dron',
     registrar_cosecha: '/registrar/cosecha',
     catalogos_actividades: '/catalogos/actividadtrac',
     catalogos_camiones: '/catalogos/camiones',
@@ -324,7 +325,8 @@ function App() {
                   <Route path="/catalogos/supervisores" element={<CatalogoSupervisores />} />
                   <Route path="/catalogos/proyectos" element={<CatalogoProyectos />} />
                   {/* Registrar */}
-                  <Route path="/registrar/actividades" element={<RegistrarActTractores />} />
+                  <Route path="/registrar/actividades" element={<RegistrarActTractores key="tractores" equipo="Tractores" />} />
+                  <Route path="/registrar/dron" element={<RegistrarActTractores key="drones" equipo="Drones" />} />
                   <Route path="/registrar/cosecha" element={<FichaCosecha />} />
                   {/* Ingreso */}
                   <Route path="/ingreso/actividades" element={<div>Ingreso Actividades - En construcción</div>} />

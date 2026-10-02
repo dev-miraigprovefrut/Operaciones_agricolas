@@ -25,6 +25,11 @@ function ReporteActividades() {
   // Filtros adicionales para Reporte
   const [reporteActividad, setReporteActividad] = useState('')
   const [reporteEquipo, setReporteEquipo] = useState('')
+  // Bitacora Tractor o Bitacora Dron (registro.equipo); mismas reglas de horas y revision
+  const [tipoEquipo, setTipoEquipo] = useState('Tractores')
+  const esDron = tipoEquipo === 'Drones'
+  const nombreEquipo = esDron ? 'Dron' : 'Tractor'
+  const deTipo = (r) => (r.equipo || 'Tractores') === tipoEquipo
   const [reporteRevision, setReporteRevision] = useState('') // '' | 'NO_REVISADO' | 'REVISADO'
   // Revision en la tabla: horas editadas {id: {inicio:'HH:MM', fin:'HH:MM'}} y filas marcadas {id: true}
   const [ediciones, setEdiciones] = useState({})
@@ -568,7 +573,7 @@ function ReporteActividades() {
       const tipo = etiquetaTipoDia(j)
       return `<div class="jornada"><span><b>${rangoJornada(j)}</b> · ${etiquetaTurno(j)}${tipo ? `<span class="badge">${tipo}</span>` : ''} · ${j.regs.length} ${j.regs.length === 1 ? 'actividad' : 'actividades'}</span><span>${resumenHorasHtml(j)}</span></div>
       <table>
-      <thead><tr><th>Tractor</th><th>Actividad</th><th>Subactividad</th><th>Lote</th><th>Hacienda</th><th>Inicio</th><th>Fin</th><th class="num">T. Trabajado</th><th class="num">T. Paro</th><th>Estado</th><th>Revisión</th></tr></thead>
+      <thead><tr><th>${nombreEquipo}</th><th>Actividad</th><th>Subactividad</th><th>Lote</th><th>Hacienda</th><th>Inicio</th><th>Fin</th><th class="num">T. Trabajado</th><th class="num">T. Paro</th><th>Estado</th><th>Revisión</th></tr></thead>
       <tbody>${j.regs.map(r =>
         '<tr><td>'+(r.tractor||'-')+'</td><td>'+(r.actividad||'-')+'</td><td>'+(r.subactividad||'-')+'</td><td>'+(r.lote||'-')+'</td><td>'+(r.hacienda||'-')+'</td><td>'+horaEnJornada(eventoInicio(r), j)+'</td><td>'+horaEnJornada(eventoFin(r), j)+'</td><td class="num">'+fmtMin(r.tiempo_real)+'</td><td class="num">'+fmtMin(r.tiempo_paro)+'</td><td>'+(r.estado||'-')+'</td><td>'+(r.revision_estado === 'REVISADO' ? 'Revisado ('+(r.revisado_por_nombre||r.revisado_por||'')+')' : 'No revisado')+'</td></tr>'
       ).join('')}</tbody></table>`
@@ -585,7 +590,7 @@ function ReporteActividades() {
 
   // Filtros por actividad (sin fechas: el rango se aplica a la jornada, ver getReporteOperadores)
   const getReporteFiltrados = () => {
-    let filtrados = registros.filter(r => r.estado !== 'Pendiente')
+    let filtrados = registros.filter(r => r.estado !== 'Pendiente' && deTipo(r))
     if (reporteOperador) filtrados = filtrados.filter(r => r.usuario === reporteOperador)
     if (reporteActividad) filtrados = filtrados.filter(r => r.actividad === reporteActividad)
     if (reporteEquipo) filtrados = filtrados.filter(r => r.tractor === reporteEquipo)
@@ -709,13 +714,13 @@ function ReporteActividades() {
   const guardarAgregar = async () => {
     const f = formAgregar
     if (!f.actividad || !f.inicio || !f.fin) { Swal.fire({ icon: 'warning', title: 'Complete actividad, inicio y fin' }); return }
-    const act = catalogoActs.find(a => a.actividad === f.actividad)
+    const act = catalogoActs.find(a => a.actividad === f.actividad && (a.equipo || 'Tractores') === tipoEquipo)
     setGuardandoAgregar(true)
     try {
       const resp = await fetch(`${API_URL}/api/registros/manual`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          usuario: f.usuario, actividad: f.actividad, subactividad: f.subactividad || null, tipo: act?.tipo || null,
+          usuario: f.usuario, actividad: f.actividad, subactividad: f.subactividad || null, tipo: act?.tipo || null, equipo: tipoEquipo,
           tractor: f.tractor || null, lote: f.lote || null, hacienda: f.hacienda || null,
           inicio: `${f.inicio}:00`, fin: `${f.fin}:00`, motivo: f.motivo || null,
         })
@@ -735,7 +740,7 @@ function ReporteActividades() {
   const handleDescargarExcel = async () => {
     const operadores = getReporteOperadores()
 
-    const COLS = ['Jornada', 'Tractor', 'Actividad', 'Subactividad', 'Lote', 'Hacienda', 'Inicio', 'Fin', 'T. Trabajado (min)', 'T. Paro (min)', 'Estado', 'Revisión', 'Revisado por', 'Fecha revisión']
+    const COLS = ['Jornada', nombreEquipo, 'Actividad', 'Subactividad', 'Lote', 'Hacienda', 'Inicio', 'Fin', 'T. Trabajado (min)', 'T. Paro (min)', 'Estado', 'Revisión', 'Revisado por', 'Fecha revisión']
     const MORADO = 'FF7B1FA2'
     const BLANCO = 'FFFFFFFF'
     const GRIS_RESUMEN = 'FFD9D9E3'
@@ -837,7 +842,7 @@ function ReporteActividades() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `reporte-actividades-${new Date().toISOString().split('T')[0]}.xlsx`
+    a.download = `reporte-${esDron ? 'drones' : 'tractores'}-${new Date().toISOString().split('T')[0]}.xlsx`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -846,7 +851,7 @@ function ReporteActividades() {
   const operadoresReporte = useMemo(
     () => tabActiva === 'reporte' ? getReporteOperadores() : [],
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tabActiva, registros, cfgJornada, reporteFechaDesde, reporteFechaHasta, reporteOperador, reporteActividad, reporteEquipo, reporteRevision, reporteBusqueda])
+    [tabActiva, registros, cfgJornada, reporteFechaDesde, reporteFechaHasta, reporteOperador, reporteActividad, reporteEquipo, reporteRevision, reporteBusqueda, tipoEquipo])
 
   const diasAMostrar = vista === 'semana' ? diasSemana : [fechaActual]
 
@@ -886,7 +891,7 @@ function ReporteActividades() {
               onClick={() => {
                 const operadores = getReporteOperadores()
                 const tablas = (operadores.length > 1 ? generarHtmlResumen(operadores) : '') + operadores.map(generarHtmlOperador).join('')
-                mostrarPrintPreview(generarHtmlReporte('Operaciones Agrícolas', 'Actividades de Tractores', periodoReporte(), tablas))
+                mostrarPrintPreview(generarHtmlReporte('Operaciones Agrícolas', esDron ? 'Bitácora Dron' : 'Bitácora Tractor', periodoReporte(), tablas))
               }}
               style={{background: '#7b1fa2', border: 'none', color: 'white', borderRadius: '6px', padding: '0.4rem 0.8rem', cursor: 'pointer', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem', whiteSpace: 'nowrap'}}
               title="Imprimir todo"
@@ -910,6 +915,17 @@ function ReporteActividades() {
             >
               <i className='bx bxs-file-export'></i> Excel
             </button>
+          </div>
+
+          {/* Tractores / Drones */}
+          <div style={{display: 'inline-flex', marginBottom: '0.5rem', border: '1px solid var(--color-border)', borderRadius: '6px', overflow: 'hidden'}}>
+            {[['Tractores', 'bx-car', 'Bitácora Tractor'], ['Drones', 'bx-paper-plane', 'Bitácora Dron']].map(([eq, ic, txt]) => (
+              <button key={eq} onClick={() => { setTipoEquipo(eq); setReporteEquipo(''); setReporteActividad('') }}
+                style={{padding: '0.35rem 0.9rem', fontSize: '0.8rem', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem', fontWeight: 600,
+                  background: tipoEquipo === eq ? '#7b1fa2' : 'var(--color-bg-light)', color: tipoEquipo === eq ? 'white' : 'var(--color-text-secondary)'}}>
+                <i className={`bx ${ic}`}></i> {txt}
+              </button>
+            ))}
           </div>
 
           {/* Filtros */}
@@ -958,13 +974,13 @@ function ReporteActividades() {
             </select>
             <select className="form-control" value={reporteActividad} onChange={e => setReporteActividad(e.target.value)} style={{fontSize: '0.75rem', padding: '0.25rem 0.4rem', maxWidth: '160px'}}>
               <option value="">Todas las actividades</option>
-              {[...new Set(registros.map(r => r.actividad).filter(Boolean))].sort().map(act => (
+              {[...new Set(registros.filter(deTipo).map(r => r.actividad).filter(Boolean))].sort().map(act => (
                 <option key={act} value={act}>{act}</option>
               ))}
             </select>
             <select className="form-control" value={reporteEquipo} onChange={e => setReporteEquipo(e.target.value)} style={{fontSize: '0.75rem', padding: '0.25rem 0.4rem', maxWidth: '160px'}}>
-              <option value="">Todos los equipos</option>
-              {[...new Set(registros.map(r => r.tractor).filter(Boolean))].sort().map(eq => (
+              <option value="">{esDron ? 'Todos los drones' : 'Todos los tractores'}</option>
+              {[...new Set(registros.filter(deTipo).map(r => r.tractor).filter(Boolean))].sort().map(eq => (
                 <option key={eq} value={eq}>{eq}</option>
               ))}
             </select>
@@ -1028,7 +1044,7 @@ function ReporteActividades() {
                       {chipsHoras(tot)}
                     </div>
                     <button
-                      onClick={() => mostrarPrintPreview(generarHtmlReporte('Operaciones Agrícolas', 'Actividades de Tractores', periodoReporte(), generarHtmlOperador(op)))}
+                      onClick={() => mostrarPrintPreview(generarHtmlReporte('Operaciones Agrícolas', esDron ? 'Bitácora Dron' : 'Bitácora Tractor', periodoReporte(), generarHtmlOperador(op)))}
                       style={{background: 'transparent', border: '1px solid var(--color-border)', borderRadius: '4px', padding: '0.3rem 0.5rem', cursor: 'pointer', color: '#7b1fa2', fontSize: '0.85rem'}}
                       title="Imprimir reporte"
                     >
@@ -1057,7 +1073,7 @@ function ReporteActividades() {
                           </div>
                           {chipsHoras(j)}
                         </div>
-                        <TablaJornada j={j} puedeRevisar={puedeRevisar}
+                        <TablaJornada j={j} puedeRevisar={puedeRevisar} etiquetaEquipo={nombreEquipo}
                           sel={regsDia.filter(r => seleccion[r.id]).map(r => r.id).join(',')}
                           ed={regsDia.some(r => ediciones[r.id]) ? JSON.stringify(Object.fromEntries(regsDia.filter(r => ediciones[r.id]).map(r => [r.id, ediciones[r.id]]))) : ''}
                           onToggle={toggleSeleccion} onMarcar={marcarSeleccion} onEditar={editarHora} onEliminar={eliminarActividad} />
@@ -1375,8 +1391,9 @@ function ReporteActividades() {
       {formAgregar && (() => {
         const f = formAgregar
         const set = (campo, v) => setFormAgregar(p => ({ ...p, [campo]: v, ...(campo === 'actividad' ? { subactividad: '' } : {}) }))
-        const act = catalogoActs.find(a => a.actividad === f.actividad)
-        const opciones = (campo) => [...new Set(registros.map(r => r[campo]).filter(Boolean))].sort()
+        const actsTipo = catalogoActs.filter(a => (a.equipo || 'Tractores') === tipoEquipo)
+        const act = actsTipo.find(a => a.actividad === f.actividad)
+        const opciones = (campo) => [...new Set(registros.filter(deTipo).map(r => r[campo]).filter(Boolean))].sort()
         const campo = { fontSize: '0.85rem', width: '100%' }
         const etiqueta = { display: 'grid', gap: '0.2rem', fontSize: '0.78rem', color: 'var(--color-text-secondary)' }
         return (
@@ -1394,7 +1411,7 @@ function ReporteActividades() {
                 <label style={{...etiqueta, gridColumn: '1 / -1'}}>Actividad *
                   <select className="form-control" value={f.actividad} onChange={e => set('actividad', e.target.value)} style={campo}>
                     <option value="">Seleccione…</option>
-                    {catalogoActs.map(a => <option key={a.id} value={a.actividad}>{a.actividad}</option>)}
+                    {actsTipo.map(a => <option key={a.id} value={a.actividad}>{a.actividad}</option>)}
                   </select>
                 </label>
                 <label style={{...etiqueta, gridColumn: '1 / -1'}}>Subactividad
@@ -1409,7 +1426,7 @@ function ReporteActividades() {
                 <label style={etiqueta}>Fin *
                   <input type="datetime-local" className="form-control" value={f.fin} onChange={e => set('fin', e.target.value)} style={campo} />
                 </label>
-                <label style={{...etiqueta, gridColumn: '1 / -1'}}>Tractor
+                <label style={{...etiqueta, gridColumn: '1 / -1'}}>{nombreEquipo}
                   <input className="form-control" list="ag-tractores" value={f.tractor} onChange={e => set('tractor', e.target.value)} style={campo} />
                   <datalist id="ag-tractores">{opciones('tractor').map(v => <option key={v} value={v} />)}</datalist>
                 </label>
