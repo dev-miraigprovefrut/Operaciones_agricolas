@@ -569,15 +569,17 @@ function ReporteActividades() {
     return filtrados
   }
 
-  // Operadores (alfabetico) con sus jornadas en orden cronologico. El rango de
+  // Operadores (alfabetico) con sus jornadas, la mas reciente primero. El rango de
   // fechas se aplica al DIA EN QUE EMPIEZA la jornada: una jornada que cruza la
   // medianoche (o dura 40 h) sale completa y no partida por dias.
   const getReporteOperadores = () => {
     const porOperador = {}
     getReporteFiltrados().forEach(r => { const op = r.usuario || 'Sin operador'; (porOperador[op] ||= []).push(r) })
     return Object.entries(porOperador).sort((a, b) => a[0].localeCompare(b[0])).map(([operador, regs]) => {
+      // De la mas reciente a la mas antigua (jornadas y actividades dentro de cada una)
       const jornadas = armarJornadas(regs, cfgJornada).filter(j =>
         (!reporteFechaDesde || j.dia >= reporteFechaDesde) && (!reporteFechaHasta || j.dia <= reporteFechaHasta))
+        .reverse().map(j => ({ ...j, regs: [...j.regs].reverse() }))
       return { operador, jornadas, tot: totalizarJornadas(jornadas) }
     }).filter(o => o.jornadas.length)
   }
