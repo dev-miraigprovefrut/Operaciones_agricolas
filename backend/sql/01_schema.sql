@@ -302,3 +302,18 @@ CREATE TABLE IF NOT EXISTS registro_revision (
     fecha                TIMESTAMP    NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS ix_registro_revision_registro ON registro_revision (id_registro);
+
+-- ------------------------------------------------- parametros del modulo
+-- Configuracion editable desde la app (clave -> JSON). Hoy: 'jornada' = horario
+-- normal, almuerzo por jornada, separacion entre jornadas y feriados que usa el
+-- reporte de actividades para clasificar horas normales / 50% / 100%.
+CREATE TABLE IF NOT EXISTS parametro (
+    id_parametro         BIGSERIAL    PRIMARY KEY,
+    tenant_id            BIGINT       NOT NULL DEFAULT 1,
+    numero_empresa       VARCHAR(10)  NOT NULL DEFAULT '222',
+    clave                VARCHAR(60)  NOT NULL,
+    valor                JSONB        NOT NULL DEFAULT '{}'::jsonb,
+    actualizado_por      VARCHAR(150),
+    fecha_actualizacion  TIMESTAMP    NOT NULL DEFAULT now(),
+    CONSTRAINT uq_parametro_clave UNIQUE (tenant_id, numero_empresa, clave)
+);

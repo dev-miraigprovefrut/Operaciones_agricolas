@@ -5,22 +5,23 @@ Estos endpoints los usa tambien el kiosko de la Raspberry (sistema aparte):
 ver auth.sesion_o_kiosko.
 """
 import logging
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any, List, Optional
 
 import requests
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select, text
+from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
-from ..auth import Usuario, requiere, sesion_o_kiosko
+from ..auth import Usuario, requiere, requiere_admin, sesion_o_kiosko
 from ..clients import equipos, notificaciones
 from ..comun import TZ_ECUADOR, ahora_ecuador
 from ..config import settings
 from ..database import get_db, get_mant_db
-from ..models import Actividad, CheckList, Registro, RegistroRevision, TractorFalla
+from ..models import Actividad, CheckList, Parametro, Registro, RegistroRevision, TractorFalla
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
@@ -629,3 +630,85 @@ def historial_revision(registro_id: int, db: Session = Depends(get_db),
                        .order_by(RegistroRevision.fecha))
     return [{"accion": f.accion, "usuario": f.usuario, "usuario_nombre": f.usuario_nombre,
              "cambios": f.cambios, "fecha": f.fecha} for f in filas]
+
+
+# ------------------------------------------------- parametros de jornada (horas)
+# Los usa el reporte de actividades (frontend utils/jornadas.js) para clasificar
+# las horas de cada jornada: turno de dia (normales) o de noche (recargo 25%),
+# al 50% fuera del horario de su turno y al 100% sabado, domingo y feriados.
+JORNADA_DEFECTO = {
+    "hora_normal_inicio": "07:00",
+    "hora_normal_fin": "16:00",
+    "hora_nocturna_inicio": "19:00",   # turno de noche: recargo del 25%
+    "hora_nocturna_fin": "06:00",
+    "almuerzo_min": 60,               # se descuenta si NO registro RECESOS Y ALIMENTACION
+    "separacion_jornada_min": 240,   # mas de 4 h sin actividad -> otra jornada
+    "feriados": [{"fecha": f, "nombre": n} for f, n in (
+        ("2026-01-01", "Año Nuevo"), ("2026-02-16", "Carnaval"), ("2026-02-17", "Carnaval"),
+        ("2026-04-03", "Viernes Santo"), ("2026-05-01", "Día del Trabajo"), ("2026-05-25", "Batalla de Pichincha"),
+        ("2026-08-10", "Primer Grito de Independencia"), ("2026-10-09", "Independencia de Guayaquil"),
+        ("2026-11-02", "Día de Difuntos"), ("2026-11-03", "Independencia de Cuenca"), ("2026-12-25", "Navidad"))],
+}
+
+
+class FeriadoIn(BaseModel):
+    fecha: date
+    nombre: str = Field("", max_length=100)
+
+
+class JornadaIn(BaseModel):
+    hora_normal_inicio: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    hora_normal_fin: str = Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    hora_nocturna_inicio: str = Field("19:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    hora_nocturna_fin: str = Field("06:00", pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    almuerzo_min: int = Field(ge=0, le=240)
+    separacion_jornada_min: int = Field(ge=30, le=1440)
+    feriados: List[FeriadoIn] = []
+
+
+def _parametro(db: Session, clave: str) -> Parametro | None:
+    """None si no esta guardado o si la tabla todavia no existe (sql/01_schema.sql)."""
+    try:
+        return db.scalar(select(Parametro).where(Parametro.clave == clave,
+                                                 Parametro.tenant_id == settings.TENANT_ID,
+                                                 Parametro.numero_empresa == settings.NUMERO_EMPRESA))
+    except ProgrammingError:
+        db.rollback()
+        logger.warning("Falta la tabla parametro: se usan los valores por defecto")
+        return None
+
+
+def _jornada_out(p: Parametro | None) -> dict:
+    return {**JORNADA_DEFECTO, **((p.valor if p else None) or {}),
+            "actualizado_por": p.actualizado_por if p else None,
+            "fecha_actualizacion": p.fecha_actualizacion if p else None}
+
+
+@router.get("/parametros/jornada")
+def ver_parametros_jornada(db: Session = Depends(get_db),
+                           _: Usuario = Depends(requiere("reportes_actividades", "revisar_actividades"))):
+    return _jornada_out(_parametro(db, "jornada"))
+
+
+@router.put("/parametros/jornada")
+def guardar_parametros_jornada(body: JornadaIn, db: Session = Depends(get_db),
+                               user: Usuario = Depends(requiere_admin)):
+    if body.hora_normal_fin <= body.hora_normal_inicio:
+        raise HTTPException(400, "La hora de fin del horario normal debe ser posterior a la de inicio")
+    if body.hora_nocturna_fin == body.hora_nocturna_inicio:
+        raise HTTPException(400, "El horario nocturno no puede empezar y terminar a la misma hora")
+    valor = body.model_dump(mode="json")
+    por_fecha = {f["fecha"]: {"fecha": f["fecha"], "nombre": f["nombre"].strip()} for f in valor["feriados"]}
+    valor["feriados"] = [por_fecha[k] for k in sorted(por_fecha)]
+    p = _parametro(db, "jornada")
+    if p is None:
+        p = Parametro(clave="jornada")
+        db.add(p)
+    p.valor, p.actualizado_por, p.fecha_actualizacion = valor, user.username, ahora_ecuador()
+    try:
+        db.commit()
+    except ProgrammingError as e:
+        db.rollback()
+        raise HTTPException(503, "Falta crear la tabla parametro en la base (sql/01_schema.sql)") from e
+    db.refresh(p)
+    return _jornada_out(p)

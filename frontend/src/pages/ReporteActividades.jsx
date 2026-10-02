@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import Swal from 'sweetalert2'
 import ExcelJS from 'exceljs'
 import HoraRueda from '../components/HoraRueda'
+import { CONFIG_JORNADA_DEFECTO, armarJornadas, totalizarJornadas, diaISO, tipoDia, feriadoDe } from '../utils/jornadas'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8007'
 
@@ -36,12 +37,25 @@ function ReporteActividades() {
       return !!p.es_admin || (p.pestanas || []).includes('revisar_actividades')
     } catch { return false }
   })()
+  const esAdmin = (() => {
+    try { return !!JSON.parse(localStorage.getItem('user_permisos_operagricola') || '{}').es_admin } catch { return false }
+  })()
+  // Horario normal, almuerzo, separacion entre jornadas y feriados (ver utils/jornadas.js)
+  const [cfgJornada, setCfgJornada] = useState(CONFIG_JORNADA_DEFECTO)
+  const [showFeriados, setShowFeriados] = useState(false)
+  const [feriadosEdit, setFeriadosEdit] = useState([])
+  const [nuevoFeriado, setNuevoFeriado] = useState({ fecha: '', nombre: '' })
+  const [guardandoFeriados, setGuardandoFeriados] = useState(false)
   const [zoomLevel, setZoomLevel] = useState(50) // px por hora
   const [tooltip, setTooltip] = useState(null) // {x, y, texto}
   const printIframeRef = useRef(null)
   const gridScrollRef = useRef(null)
   useEffect(() => {
     fetchRegistros()
+    fetch(`${API_URL}/api/parametros/jornada`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setCfgJornada(d) })
+      .catch(() => {})
   }, [])
 
   // Scroll a las 6am al cargar
@@ -454,34 +468,86 @@ function ReporteActividades() {
     }
   }
 
+  // ---- Formatos comunes de pantalla, impresion y Excel ----
+  const fmtMin = (min) => { if (!min || min < 0.5) return '-'; const h = Math.floor(min / 60); const m = Math.round(min % 60); return h > 0 ? `${h}h ${m}m` : `${m}m` }
+  const fmtHora = (d) => d.toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' })
+  const fmtDia = (d, anio = true) => d.toLocaleDateString('es-EC', { weekday: 'short', day: '2-digit', month: 'short', ...(anio ? { year: 'numeric' } : {}) })
+  const fmtDiaMes = (d) => d.toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit' })
+  // Hora de un evento; si cae en otro dia que el inicio de la jornada se antepone dd/mm
+  const horaEnJornada = (ev, j) => {
+    if (!ev) return '-'
+    const d = new Date(ev.fecha)
+    return diaISO(d) !== j.dia ? `${fmtDiaMes(d)} ${fmtHora(d)}` : fmtHora(d)
+  }
+  // Rango CONTADO de la jornada (inicio redondeado hacia adelante y fin hacia atras, a 0/5 min)
+  const rangoJornada = (j) => {
+    if (!j.inicio) return 'Sin fecha'
+    const ini = j.inicioContado || j.inicio
+    const finD = j.finContado || j.fin
+    const fin = j.enCurso ? 'en curso' : finD ? (diaISO(finD) !== j.dia ? `${fmtDia(finD, false)} ${fmtHora(finD)}` : fmtHora(finD)) : '-'
+    return `${fmtDia(j.inicio)} · ${fmtHora(ini)} → ${fin}`
+  }
+  const etiquetaTurno = (j) => j.turno === 'NOCHE' ? 'Turno noche' : 'Turno día'
+  const etiquetaTipoDia = (j) => {
+    const tipo = tipoDia(j.inicio, cfgJornada)
+    if (tipo === 'FERIADO') { const f = feriadoDe(j.inicio, cfgJornada); return `Feriado${f?.nombre ? ': ' + f.nombre : ''}` }
+    return tipo === 'FIN_DE_SEMANA' ? 'Fin de semana' : ''
+  }
+  const textoReglas = () => `Turno de día ${cfgJornada.hora_normal_inicio}–${cfgJornada.hora_normal_fin}: normales · Turno de noche ${cfgJornada.hora_nocturna_inicio || '19:00'}–${cfgJornada.hora_nocturna_fin || '06:00'}: recargo 25% · Horas adicionales a su turno (lun–vie): 50% · Sáb., dom. y feriados: 100% · Jornada = trabajo + almuerzo (el receso registrado o ${cfgJornada.almuerzo_min} min si no lo registró) · Inicio redondeado hacia adelante y fin hacia atrás (0/5 min)`
+  // Almuerzo de una jornada (almuerzoRegistrado) o de un total (sinAlmuerzo = jornadas sin registrar)
+  const alertaAlmuerzo = (t) => 'sinAlmuerzo' in t ? t.sinAlmuerzo > 0 : !t.almuerzoRegistrado
+  const textoAlmuerzo = (t) => 'sinAlmuerzo' in t
+    ? `${fmtMin(t.almuerzo)}${t.sinAlmuerzo ? ` (⚠ ${t.sinAlmuerzo} ${t.sinAlmuerzo === 1 ? 'jornada' : 'jornadas'} sin registrar)` : ''}`
+    : t.almuerzoRegistrado ? `${fmtMin(t.almuerzo)} (registrado)` : `${fmtMin(t.almuerzo)} (⚠ no registrado)`
+
   const generarHtmlReporte = (titulo, subtitulo, periodo, tablas) => {
     return `<html><head><title>${titulo}</title>
-      <style>body{font-family:Arial,sans-serif;padding:1.5rem;font-size:11px;} h1{text-align:center;color:#7b1fa2;margin-bottom:0;} h2{text-align:center;color:var(--color-text-secondary);font-size:14px;margin-top:4px;} .info{text-align:center;color:var(--color-text-secondary);margin-bottom:1rem;font-size:11px;} table{width:100%;border-collapse:collapse;font-size:10px;margin-bottom:0.5rem;} th,td{border:1px solid #ddd;padding:3px 5px;text-align:left;} th{background:#7b1fa2;color:white;} tr:nth-child(even){background:var(--color-bg-light);} h3{color:#7b1fa2;margin-top:1.5rem;border-bottom:2px solid #7b1fa2;padding-bottom:4px;} .footer{margin-top:2rem;font-size:9px;color:var(--color-text-secondary);text-align:center;border-top:1px solid #ddd;padding-top:0.5rem;}</style>
+      <style>body{font-family:Arial,sans-serif;padding:1.5rem;font-size:11px;} h1{text-align:center;color:#7b1fa2;margin-bottom:0;} h2{text-align:center;color:#555;font-size:14px;margin-top:4px;} .info{text-align:center;color:#555;margin:0 0 0.3rem;font-size:11px;} .reglas{text-align:center;color:#777;font-size:9px;margin-bottom:1rem;} table{width:100%;border-collapse:collapse;font-size:10px;margin-bottom:0.5rem;} th,td{border:1px solid #ddd;padding:3px 5px;text-align:left;} th{background:#7b1fa2;color:white;} tr:nth-child(even){background:#f7f7f7;} td.num,th.num{text-align:right;} h3{color:#7b1fa2;margin:1.5rem 0 0.3rem;border-bottom:2px solid #7b1fa2;padding-bottom:4px;page-break-after:avoid;} .resumen{margin-bottom:0.5rem;} .jornada{display:flex;justify-content:space-between;flex-wrap:wrap;gap:4px;background:#f1e6f5;padding:3px 6px;margin-top:0.5rem;font-size:10px;page-break-after:avoid;} .h{display:inline-block;margin-right:8px;white-space:nowrap;} .c25{color:#1565c0;} .c50{color:#c25e00;} .c100{color:#b71c1c;} .alerta{background:#fff3cd;color:#8a5300;border:1px solid #f0ad4e;border-radius:3px;padding:0 4px;} .badge{background:#b71c1c;color:white;border-radius:3px;padding:0 4px;font-size:9px;margin-left:4px;} .footer{margin-top:2rem;font-size:9px;color:#777;text-align:center;border-top:1px solid #ddd;padding-top:0.5rem;}</style>
       </head><body>
       <h1>${titulo}</h1>
       <h2>${subtitulo}</h2>
       <p class="info">Período: ${periodo}</p>
+      <p class="reglas">${textoReglas()}</p>
       ${tablas}
       <p class="footer">Generado el ${new Date().toLocaleString('es-EC')} — Módulo Agrícola v0.0.1</p>
       </body></html>`
   }
 
-  const fmtMinPrint = (min) => { if (!min) return '-'; const h = Math.floor(min/60); const m = Math.round(min%60); return h > 0 ? h+'h '+m+'m' : m+'m' }
+  const resumenHorasHtml = (t) =>
+    `<span class="h">Trabajo <b>${fmtMin(t.pagable)}</b></span>` +
+    `<span class="h${alertaAlmuerzo(t) ? ' alerta' : ''}">+ Almuerzo <b>${textoAlmuerzo(t)}</b></span>` +
+    `<span class="h">= Jornada <b>${fmtMin(t.trabajado)}</b></span>` +
+    `<span class="h">Normales <b>${fmtMin(t.normal)}</b></span>` +
+    `<span class="h c25">Nocturnas 25% <b>${fmtMin(t.nocturna)}</b></span>` +
+    `<span class="h c50">Al 50% <b>${fmtMin(t.extra50)}</b></span>` +
+    `<span class="h c100">Al 100% <b>${fmtMin(t.extra100)}</b></span>` +
+    `<span class="h">Paro <b>${fmtMin(t.paro)}</b></span>`
 
-  const generarTablaOperador = (regs) => {
-    return `<table>
-      <thead><tr><th>Fecha</th><th>Tractor</th><th>Actividad</th><th>Subactividad</th><th>Lote</th><th>Hacienda</th><th>Inicio</th><th>Fin</th><th>T. Trabajado</th><th>T. Paro</th><th>Estado</th><th>Revisión</th></tr></thead>
-      <tbody>${regs.map(r => {
-        const ini = r.fecha_historial?.find(h => h.accion === 'inicio')
-        const fi = r.fecha_historial?.find(h => h.accion === 'finalizado')
-        return '<tr><td>'+(r.fecha_creacion ? new Date(r.fecha_creacion).toLocaleDateString('es-EC') : '-')+'</td><td>'+(r.tractor||'-')+'</td><td>'+(r.actividad||'-')+'</td><td>'+(r.subactividad||'-')+'</td><td>'+(r.lote||'-')+'</td><td>'+(r.hacienda||'-')+'</td><td>'+(ini ? new Date(ini.fecha).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}) : '-')+'</td><td>'+(fi ? new Date(fi.fecha).toLocaleTimeString('es-EC',{hour:'2-digit',minute:'2-digit'}) : '-')+'</td><td>'+fmtMinPrint(r.tiempo_real)+'</td><td>'+fmtMinPrint(r.tiempo_paro)+'</td><td>'+(r.estado||'-')+'</td><td>'+(r.revision_estado === 'REVISADO' ? 'Revisado ('+(r.revisado_por_nombre||r.revisado_por||'')+')' : 'No revisado')+'</td></tr>'
-      }).join('')}</tbody></table>`
-  }
+  const generarHtmlOperador = ({ operador, jornadas, tot }) =>
+    `<h3>${operador} <span style="font-size:11px;color:#555;font-weight:normal;">(${tot.actividades} actividades · ${jornadas.length} ${jornadas.length === 1 ? 'jornada' : 'jornadas'})</span></h3>
+    <div class="resumen">${resumenHorasHtml(tot)}</div>
+    ${jornadas.map(j => {
+      const tipo = etiquetaTipoDia(j)
+      return `<div class="jornada"><span><b>${rangoJornada(j)}</b> · ${etiquetaTurno(j)}${tipo ? `<span class="badge">${tipo}</span>` : ''} · ${j.regs.length} ${j.regs.length === 1 ? 'actividad' : 'actividades'}</span><span>${resumenHorasHtml(j)}</span></div>
+      <table>
+      <thead><tr><th>Tractor</th><th>Actividad</th><th>Subactividad</th><th>Lote</th><th>Hacienda</th><th>Inicio</th><th>Fin</th><th class="num">T. Trabajado</th><th class="num">T. Paro</th><th>Estado</th><th>Revisión</th></tr></thead>
+      <tbody>${j.regs.map(r =>
+        '<tr><td>'+(r.tractor||'-')+'</td><td>'+(r.actividad||'-')+'</td><td>'+(r.subactividad||'-')+'</td><td>'+(r.lote||'-')+'</td><td>'+(r.hacienda||'-')+'</td><td>'+horaEnJornada(eventoInicio(r), j)+'</td><td>'+horaEnJornada(eventoFin(r), j)+'</td><td class="num">'+fmtMin(r.tiempo_real)+'</td><td class="num">'+fmtMin(r.tiempo_paro)+'</td><td>'+(r.estado||'-')+'</td><td>'+(r.revision_estado === 'REVISADO' ? 'Revisado ('+(r.revisado_por_nombre||r.revisado_por||'')+')' : 'No revisado')+'</td></tr>'
+      ).join('')}</tbody></table>`
+    }).join('')}`
 
+  const generarHtmlResumen = (operadores) =>
+    `<h3>Resumen de horas</h3><table>
+      <thead><tr><th>Operador</th><th class="num">Jornadas</th><th class="num">Actividades</th><th class="num">Trabajo</th><th class="num">Almuerzo</th><th class="num">Total jornadas</th><th class="num">Normales</th><th class="num">Nocturnas 25%</th><th class="num">Al 50%</th><th class="num">Al 100%</th><th class="num">Paro</th></tr></thead>
+      <tbody>${operadores.map(({ operador, jornadas, tot }) =>
+        `<tr><td>${operador}</td><td class="num">${jornadas.length}</td><td class="num">${tot.actividades}</td><td class="num">${fmtMin(tot.pagable)}</td><td class="num">${fmtMin(tot.almuerzo)}${tot.sinAlmuerzo ? `<br><span class="alerta">⚠ ${tot.sinAlmuerzo} sin registrar</span>` : ''}</td><td class="num">${fmtMin(tot.trabajado)}</td><td class="num">${fmtMin(tot.normal)}</td><td class="num c25">${fmtMin(tot.nocturna)}</td><td class="num c50">${fmtMin(tot.extra50)}</td><td class="num c100">${fmtMin(tot.extra100)}</td><td class="num">${fmtMin(tot.paro)}</td></tr>`
+      ).join('')}</tbody></table>`
+
+  const periodoReporte = () => `${reporteFechaDesde || 'Inicio'} al ${reporteFechaHasta || 'Actual'}`
+
+  // Filtros por actividad (sin fechas: el rango se aplica a la jornada, ver getReporteOperadores)
   const getReporteFiltrados = () => {
     let filtrados = registros.filter(r => r.estado !== 'Pendiente')
-    if (reporteFechaDesde) filtrados = filtrados.filter(r => r.fecha_creacion && r.fecha_creacion >= reporteFechaDesde)
-    if (reporteFechaHasta) filtrados = filtrados.filter(r => r.fecha_creacion && r.fecha_creacion.substring(0, 10) <= reporteFechaHasta)
     if (reporteOperador) filtrados = filtrados.filter(r => r.usuario === reporteOperador)
     if (reporteActividad) filtrados = filtrados.filter(r => r.actividad === reporteActividad)
     if (reporteEquipo) filtrados = filtrados.filter(r => r.tractor === reporteEquipo)
@@ -500,53 +566,167 @@ function ReporteActividades() {
     return filtrados
   }
 
-  const handleDescargarExcel = async () => {
-    const filtrados = getReporteFiltrados()
+  // Operadores (alfabetico) con sus jornadas en orden cronologico. El rango de
+  // fechas se aplica al DIA EN QUE EMPIEZA la jornada: una jornada que cruza la
+  // medianoche (o dura 40 h) sale completa y no partida por dias.
+  const getReporteOperadores = () => {
     const porOperador = {}
-    filtrados.forEach(r => { const op = r.usuario || 'Sin operador'; if (!porOperador[op]) porOperador[op] = []; porOperador[op].push(r) })
+    getReporteFiltrados().forEach(r => { const op = r.usuario || 'Sin operador'; (porOperador[op] ||= []).push(r) })
+    return Object.entries(porOperador).sort((a, b) => a[0].localeCompare(b[0])).map(([operador, regs]) => {
+      const jornadas = armarJornadas(regs, cfgJornada).filter(j =>
+        (!reporteFechaDesde || j.dia >= reporteFechaDesde) && (!reporteFechaHasta || j.dia <= reporteFechaHasta))
+      return { operador, jornadas, tot: totalizarJornadas(jornadas) }
+    }).filter(o => o.jornadas.length)
+  }
 
-    const COLS = ['Fecha', 'Tractor', 'Actividad', 'Subactividad', 'Lote', 'Hacienda', 'Inicio', 'Fin', 'T. Trabajado (min)', 'T. Paro (min)', 'Estado', 'Revisión', 'Revisado por', 'Fecha revisión']
+  const configurarJornada = async () => {
+    const c = cfgJornada
+    const campo = 'width:100%;padding:0.35rem;border:1px solid #ccc;border-radius:4px;font-size:0.85rem;box-sizing:border-box;'
+    const { value } = await Swal.fire({
+      title: 'Horas de la jornada',
+      width: 520,
+      html: `<div style="text-align:left;font-size:0.82rem;display:grid;gap:0.6rem;">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.6rem;">
+          <label>Turno de día (normales) desde<input id="cj-ini" type="time" value="${c.hora_normal_inicio}" style="${campo}"></label>
+          <label>hasta<input id="cj-fin" type="time" value="${c.hora_normal_fin}" style="${campo}"></label>
+          <label>Turno de noche (25%) desde<input id="cj-nini" type="time" value="${c.hora_nocturna_inicio || '19:00'}" style="${campo}"></label>
+          <label>hasta<input id="cj-nfin" type="time" value="${c.hora_nocturna_fin || '06:00'}" style="${campo}"></label>
+        </div>
+        <label>Almuerzo a descontar si el operador NO registró su receso (minutos)<input id="cj-alm" type="number" min="0" max="240" value="${c.almuerzo_min}" style="${campo}"></label>
+        <label>Empieza otra jornada si pasan más de (horas) sin actividad<input id="cj-sep" type="number" min="0.5" max="24" step="0.5" value="${(c.separacion_jornada_min || 0) / 60}" style="${campo}"></label>
+        <small style="color:#777;">Las horas fuera del horario de su turno (lun–vie) son al 50%; sábados, domingos y feriados al 100%. Los feriados se ingresan en el botón «Feriados».${c.actualizado_por ? ` Última modificación: ${c.actualizado_por}${c.fecha_actualizacion ? ' — ' + fmtFechaHora(c.fecha_actualizacion) : ''}.` : ''}</small>
+      </div>`,
+      focusConfirm: false, showCancelButton: true, confirmButtonText: 'Guardar', cancelButtonText: 'Cancelar', confirmButtonColor: '#7b1fa2',
+      showLoaderOnConfirm: true,
+      preConfirm: async () => {
+        const val = (id) => document.getElementById(id).value.trim()
+        try {
+          return await guardarCfgJornada({
+            hora_normal_inicio: val('cj-ini'), hora_normal_fin: val('cj-fin'),
+            hora_nocturna_inicio: val('cj-nini'), hora_nocturna_fin: val('cj-nfin'),
+            almuerzo_min: Number(val('cj-alm')), separacion_jornada_min: Math.round(Number(val('cj-sep')) * 60),
+          })
+        } catch (err) {
+          Swal.showValidationMessage(err.message)
+          return false
+        }
+      },
+    })
+    if (value) Swal.fire({ icon: 'success', title: 'Configuración guardada', timer: 1300, showConfirmButton: false })
+  }
+
+  // Guarda la configuracion completa (lo que no venga en `cambios` se conserva)
+  const guardarCfgJornada = async (cambios) => {
+    const { actualizado_por: _a, fecha_actualizacion: _f, ...actual } = cfgJornada
+    const body = { ...actual, ...cambios }
+    body.feriados = (body.feriados || []).map(f => typeof f === 'string' ? { fecha: f, nombre: '' } : f)
+    let resp
+    try {
+      resp = await fetch(`${API_URL}/api/parametros/jornada`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+    } catch { throw new Error('Sin conexión con el servidor') }
+    const data = await resp.json().catch(() => ({}))
+    if (!resp.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Revise los datos ingresados')
+    setCfgJornada(data)
+    return data
+  }
+
+  // ---- Feriados (ventana propia) ----
+  const abrirFeriados = () => {
+    setFeriadosEdit((cfgJornada.feriados || []).map(f => typeof f === 'string' ? { fecha: f, nombre: '' } : { ...f }))
+    setNuevoFeriado({ fecha: '', nombre: '' })
+    setShowFeriados(true)
+  }
+  const agregarFeriado = () => {
+    const { fecha, nombre } = nuevoFeriado
+    if (!fecha) return
+    setFeriadosEdit(prev => [...prev.filter(f => f.fecha !== fecha), { fecha, nombre: nombre.trim() }].sort((a, b) => a.fecha.localeCompare(b.fecha)))
+    setNuevoFeriado({ fecha: '', nombre: '' })
+  }
+  const guardarFeriados = async () => {
+    setGuardandoFeriados(true)
+    try {
+      await guardarCfgJornada({ feriados: feriadosEdit })
+      setShowFeriados(false)
+      Swal.fire({ icon: 'success', title: 'Feriados guardados', timer: 1300, showConfirmButton: false })
+    } catch (err) {
+      Swal.fire({ icon: 'error', title: 'No se pudo guardar', text: err.message })
+    } finally {
+      setGuardandoFeriados(false)
+    }
+  }
+
+  const handleDescargarExcel = async () => {
+    const operadores = getReporteOperadores()
+
+    const COLS = ['Jornada', 'Tractor', 'Actividad', 'Subactividad', 'Lote', 'Hacienda', 'Inicio', 'Fin', 'T. Trabajado (min)', 'T. Paro (min)', 'Estado', 'Revisión', 'Revisado por', 'Fecha revisión']
     const MORADO = 'FF7B1FA2'
     const BLANCO = 'FFFFFFFF'
     const GRIS_RESUMEN = 'FFD9D9E3'
     const VERDE_TOTAL = 'FFE2F0D9'
+    const NARANJA_50 = 'FFFCE4CC'
+    const ROJO_100 = 'FFF8D7DA'
+    const AMARILLO_ALERTA = 'FFFFF3CD'
+    const AZUL_25 = 'FFDCEBFA'
+    const horas = (min) => Number(((min || 0) / 60).toFixed(2))
+    const fechaHora = (ev) => ev ? new Date(ev.fecha).toLocaleString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'
+    const encabezado = (hoja, cols) => cols.forEach((c, idx) => {
+      const celda = hoja.getRow(1).getCell(idx + 1)
+      celda.value = c
+      celda.font = { bold: true, color: { argb: BLANCO } }
+      celda.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: MORADO } }
+    })
 
     const workbook = new ExcelJS.Workbook()
 
-    Object.entries(porOperador).sort((a, b) => a[0].localeCompare(b[0])).forEach(([operador, regs]) => {
+    // Hoja 1: resumen de horas por operador (en horas decimales)
+    if (operadores.length) {
+      const COLS_RES = ['Operador', 'Jornadas', 'Actividades', 'Trabajo (h)', 'Almuerzo (h)', 'Total jornadas (h)', 'Normales (h)', 'Nocturnas 25% (h)', 'Al 50% (h)', 'Al 100% (h)', 'Paro (h)', 'Jornadas sin almuerzo registrado']
+      const res = workbook.addWorksheet('Resumen')
+      encabezado(res, COLS_RES)
+      operadores.forEach(({ operador, jornadas, tot }, i) => {
+        res.getRow(i + 2).values = [operador, jornadas.length, tot.actividades, horas(tot.pagable), horas(tot.almuerzo), horas(tot.trabajado), horas(tot.normal), horas(tot.nocturna), horas(tot.extra50), horas(tot.extra100), horas(tot.paro), tot.sinAlmuerzo]
+        if (tot.sinAlmuerzo) res.getRow(i + 2).getCell(12).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AMARILLO_ALERTA } }
+      })
+      res.getRow(operadores.length + 3).getCell(1).value = textoReglas()
+      res.columns = COLS_RES.map((c, i) => ({ width: i === 0 ? 34 : 14 }))
+      res.views = [{ state: 'frozen', ySplit: 1 }]
+    }
+
+    operadores.forEach(({ operador, jornadas, tot }) => {
       const nombreHoja = operador.replace(/[\\/*?:[\]]/g, '').substring(0, 31) || 'Sin operador'
-      const hoja = workbook.addWorksheet(nombreHoja)
+      const hoja = workbook.addWorksheet(workbook.getWorksheet(nombreHoja) ? nombreHoja.substring(0, 28) + ' 2' : nombreHoja)
+      encabezado(hoja, COLS)
 
-      COLS.forEach((c, idx) => {
-        const celda = hoja.getRow(1).getCell(idx + 1)
-        celda.value = c
-        celda.font = { bold: true, color: { argb: BLANCO } }
-        celda.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: MORADO } }
-      })
-
-      // Agrupar por tractor + dia (mismo orden en que ya vienen: por fecha_creacion desc)
-      const grupos = []
-      let grupoActual = null
-      regs.forEach(r => {
-        const diaKey = r.fecha_creacion ? r.fecha_creacion.substring(0, 10) : 'sin-fecha'
-        const key = `${r.tractor || '-'}|${diaKey}`
-        if (!grupoActual || grupoActual.key !== key) {
-          grupoActual = { key, tractor: r.tractor || '-', dia: diaKey, regs: [] }
-          grupos.push(grupoActual)
-        }
-        grupoActual.regs.push(r)
-      })
-
+      // Filas de resumen de horas: minutos (col 9), horas (col 10), etiqueta (col 11)
       let fila = 2
-      grupos.forEach(grupo => {
-        grupo.regs.forEach(r => {
-          const ini = r.fecha_historial?.find(h => h.accion === 'inicio')
-          const fi = r.fecha_historial?.find(h => h.accion === 'finalizado')
+      const filasHoras = (t, prefijo, fillTotal) => {
+        [
+          { minutos: t.pagable, etiqueta: `${prefijo}horas de trabajo`, fill: fillTotal },
+          { minutos: t.almuerzo, etiqueta: `${prefijo}+ almuerzo ${textoAlmuerzo(t)}`, fill: alertaAlmuerzo(t) ? AMARILLO_ALERTA : GRIS_RESUMEN },
+          { minutos: t.trabajado, etiqueta: `${prefijo}= total jornada (trabajo + almuerzo)`, fill: GRIS_RESUMEN },
+          { minutos: t.normal, etiqueta: `${prefijo}horas normales`, fill: GRIS_RESUMEN },
+          { minutos: t.nocturna, etiqueta: `${prefijo}horas nocturnas (25%)`, fill: AZUL_25 },
+          { minutos: t.extra50, etiqueta: `${prefijo}horas al 50%`, fill: NARANJA_50 },
+          { minutos: t.extra100, etiqueta: `${prefijo}horas al 100%`, fill: ROJO_100 },
+        ].forEach(({ minutos, etiqueta, fill }) => {
+          const celdas = [[9, Math.round(minutos)], [10, horas(minutos)], [11, etiqueta]]
+          celdas.forEach(([col, v]) => {
+            const celda = hoja.getRow(fila).getCell(col)
+            celda.value = v
+            celda.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } }
+          })
+          fila++
+        })
+      }
+
+      jornadas.forEach(j => {
+        const tipo = etiquetaTipoDia(j)
+        const etiquetaJornada = `${rangoJornada(j)} · ${etiquetaTurno(j)}` + (tipo ? ` (${tipo})` : '')
+        j.regs.forEach(r => {
           const valores = [
-            r.fecha_creacion ? new Date(r.fecha_creacion).toLocaleDateString('es-EC') : '-',
+            etiquetaJornada,
             r.tractor || '-', r.actividad || '-', r.subactividad || '-', r.lote || '-', r.hacienda || '-',
-            ini ? new Date(ini.fecha).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' }) : '-',
-            fi ? new Date(fi.fecha).toLocaleTimeString('es-EC', { hour: '2-digit', minute: '2-digit' }) : '-',
+            fechaHora(eventoInicio(r)), fechaHora(eventoFin(r)),
             r.tiempo_real ? Math.round(r.tiempo_real) : 0,
             r.tiempo_paro ? Math.round(r.tiempo_paro) : 0,
             r.estado || '-',
@@ -557,32 +737,10 @@ function ReporteActividades() {
           valores.forEach((v, idx) => { hoja.getRow(fila).getCell(idx + 1).value = v })
           fila++
         })
-
-        // Resumen de horas del grupo (tractor + dia): total, apoyos generales, trabajo real
-        const minTotal = grupo.regs.reduce((s, r) => s + (r.tiempo_real ? Math.round(r.tiempo_real) : 0), 0)
-        const minApoyos = grupo.regs.filter(r => r.tipo === 'Apoyos Generales').reduce((s, r) => s + (r.tiempo_real ? Math.round(r.tiempo_real) : 0), 0)
-        const minTrabajo = minTotal - minApoyos
-
-        const filasResumen = [
-          { minutos: minTotal, etiqueta: 'Horas diarias', fill: GRIS_RESUMEN },
-          { minutos: minApoyos, etiqueta: 'Horas de apoyos generales', fill: GRIS_RESUMEN },
-          { minutos: minTrabajo, etiqueta: 'Horas de trabajo diarias', fill: VERDE_TOTAL },
-        ]
-        filasResumen.forEach(({ minutos, etiqueta, fill }) => {
-          const celdaMin = hoja.getRow(fila).getCell(9)
-          celdaMin.value = minutos
-          celdaMin.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } }
-          const celdaHoras = hoja.getRow(fila).getCell(10)
-          celdaHoras.value = Number((minutos / 60).toFixed(2))
-          celdaHoras.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } }
-          celdaHoras.border = { top: { style: 'thin' }, bottom: { style: 'thin' }, left: { style: 'thin' }, right: { style: 'thin' } }
-          const celdaEtiqueta = hoja.getRow(fila).getCell(11)
-          celdaEtiqueta.value = etiqueta
-          celdaEtiqueta.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: fill } }
-          fila++
-        })
-        fila++ // fila en blanco entre grupos
+        filasHoras(j, 'Jornada: ', VERDE_TOTAL)
+        fila++ // fila en blanco entre jornadas
       })
+      filasHoras(tot, 'TOTAL ', VERDE_TOTAL)
 
       hoja.columns = COLS.map((c, idx) => {
         let max = c.length
@@ -643,14 +801,9 @@ function ReporteActividades() {
             </div>
             <button
               onClick={() => {
-                const filtrados = getReporteFiltrados()
-                const porOperador = {}
-                filtrados.forEach(r => { const op = r.usuario || 'Sin operador'; if (!porOperador[op]) porOperador[op] = []; porOperador[op].push(r) })
-                const periodo = `${reporteFechaDesde || 'Inicio'} al ${reporteFechaHasta || 'Actual'}`
-                const tablas = Object.entries(porOperador).sort((a,b) => a[0].localeCompare(b[0])).map(([op, regs]) =>
-                  `<h3>${op} <span style="font-size:11px;color:var(--color-text-secondary);font-weight:normal;">(${regs.length} actividades)</span></h3>${generarTablaOperador(regs)}`
-                ).join('')
-                mostrarPrintPreview(generarHtmlReporte('Operaciones Agrícolas', 'Actividades de Tractores', periodo, tablas))
+                const operadores = getReporteOperadores()
+                const tablas = (operadores.length > 1 ? generarHtmlResumen(operadores) : '') + operadores.map(generarHtmlOperador).join('')
+                mostrarPrintPreview(generarHtmlReporte('Operaciones Agrícolas', 'Actividades de Tractores', periodoReporte(), tablas))
               }}
               style={{background: '#7b1fa2', border: 'none', color: 'white', borderRadius: '6px', padding: '0.4rem 0.8rem', cursor: 'pointer', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem', whiteSpace: 'nowrap'}}
               title="Imprimir todo"
@@ -694,6 +847,25 @@ function ReporteActividades() {
             <span style={{fontSize: '0.72rem', color: 'var(--color-text-secondary)'}}>—</span>
             <input type="date" className="form-control" value={reporteFechaHasta} onChange={e => setReporteFechaHasta(e.target.value)} style={{fontSize: '0.75rem', padding: '0.25rem 0.4rem', maxWidth: '140px'}} />
           </div>
+          {/* Reglas con que se clasifican las horas */}
+          <div style={{display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.5rem', fontSize: '0.7rem', color: 'var(--color-text-secondary)', flexWrap: 'wrap'}}>
+            <i className='bx bx-time-five'></i>
+            <span>{textoReglas()}</span>
+            {esAdmin && (
+              <button onClick={configurarJornada}
+                style={{background: 'transparent', border: '1px solid var(--color-border)', color: '#7b1fa2', cursor: 'pointer', fontSize: '0.7rem', padding: '0.15rem 0.45rem', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '0.2rem'}}
+                title="Horario normal, almuerzo y feriados">
+                <i className='bx bx-cog'></i> Configurar
+              </button>
+            )}
+            {esAdmin && (
+              <button onClick={abrirFeriados}
+                style={{background: 'transparent', border: '1px solid var(--color-border)', color: '#7b1fa2', cursor: 'pointer', fontSize: '0.7rem', padding: '0.15rem 0.45rem', borderRadius: '4px', display: 'flex', alignItems: 'center', gap: '0.2rem'}}
+                title="Ingresar los feriados (horas al 100%)">
+                <i className='bx bx-calendar-star'></i> Feriados ({(cfgJornada.feriados || []).length})
+              </button>
+            )}
+          </div>
           <div style={{display: 'flex', gap: '0.4rem', alignItems: 'center', marginBottom: '0.8rem', flexWrap: 'wrap'}}>
             <select className="form-control" value={reporteOperador} onChange={e => setReporteOperador(e.target.value)} style={{fontSize: '0.75rem', padding: '0.25rem 0.4rem', maxWidth: '160px'}}>
               <option value="">Todos los operadores</option>
@@ -731,51 +903,49 @@ function ReporteActividades() {
           {/* Tabla de reporte */}
           <div className="reporte-tabla-container">
             {(() => {
-              const filtrados = getReporteFiltrados()
+              const operadores = getReporteOperadores()
 
-              // Agrupar por operador
-              const porOperador = {}
-              filtrados.forEach(r => {
-                const op = r.usuario || 'Sin operador'
-                if (!porOperador[op]) porOperador[op] = []
-                porOperador[op].push(r)
-              })
-
-              if (Object.keys(porOperador).length === 0) {
+              if (operadores.length === 0) {
                 return <p style={{textAlign: 'center', color: 'var(--color-text-secondary)', padding: '2rem'}}>No hay actividades en el rango seleccionado</p>
               }
 
-              const formatMin = (min) => { if (!min) return '-'; const h = Math.floor(min / 60); const m = Math.round(min % 60); return h > 0 ? `${h}h ${m}m` : `${m}m` }
+              // Trabajado, almuerzo, normales / 50% / 100% y paro de una jornada o del total
+              const chipsHoras = (t) => (
+                <span style={{display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap', fontSize: '0.72rem'}}>
+                  {/* Trabajo + almuerzo = jornada */}
+                  <span style={{color: '#28a745', fontWeight: 600}} title="Horas de trabajo (sin almuerzo ni pausas)">Trabajo {fmtMin(t.pagable)}</span>
+                  {alertaAlmuerzo(t) ? (
+                    <span style={{background: '#fff3cd', color: '#8a5300', border: '1px solid #f0ad4e', borderRadius: '4px', padding: '1px 6px', fontWeight: 600}}
+                      title={`No registró RECESOS Y ALIMENTACIÓN: se toman ${cfgJornada.almuerzo_min} min de almuerzo por jornada`}>
+                      <i className='bx bx-error' style={{verticalAlign: 'middle'}}></i> + Almuerzo {textoAlmuerzo(t)}
+                    </span>
+                  ) : (
+                    <span style={{color: 'var(--color-text-secondary)'}} title="Almuerzo (no se paga)">+ Almuerzo {textoAlmuerzo(t)}</span>
+                  )}
+                  <span style={{fontWeight: 600}} title="Total de la jornada (trabajo + almuerzo)">= Jornada {fmtMin(t.trabajado)}</span>
+                  <span style={{borderLeft: '1px solid var(--color-border)', height: '1em'}}></span>
+                  <span title="Horas normales (turno de día)">Normales <b>{fmtMin(t.normal)}</b></span>
+                  <span style={{color: '#1976d2'}} title="Turno de noche: recargo del 25%">Nocturnas 25% <b>{fmtMin(t.nocturna)}</b></span>
+                  <span style={{color: '#e67e22'}} title="Horas adicionales al 50%">50% <b>{fmtMin(t.extra50)}</b></span>
+                  <span style={{color: '#dc3545'}} title="Horas al 100%">100% <b>{fmtMin(t.extra100)}</b></span>
+                  <span style={{color: '#dc3545', opacity: 0.8}}>{fmtMin(t.paro)} paro</span>
+                </span>
+              )
 
-              return Object.entries(porOperador).sort((a, b) => a[0].localeCompare(b[0])).map(([operador, regs]) => {
-                const totalReal = regs.reduce((s, r) => s + (r.tiempo_real || 0), 0)
-                const totalParo = regs.reduce((s, r) => s + (r.tiempo_paro || 0), 0)
-
-                // Agrupar por día
-                const porDia = {}
-                regs.forEach(r => {
-                  const fecha = r.fecha_creacion ? r.fecha_creacion.substring(0, 10) : 'Sin fecha'
-                  if (!porDia[fecha]) porDia[fecha] = []
-                  porDia[fecha].push(r)
-                })
-
+              return operadores.map((op) => {
+                const { operador, jornadas, tot } = op
                 return (
                 <div key={operador} className="reporte-operador-grupo">
-                  <div className="reporte-operador-header" style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
-                    <div style={{display: 'flex', alignItems: 'center', gap: '0.8rem'}}>
+                  <div className="reporte-operador-header" style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.5rem'}}>
+                    <div style={{display: 'flex', alignItems: 'center', gap: '0.8rem', flexWrap: 'wrap'}}>
                       <div>
                         <i className='bx bx-user'></i> <strong>{operador}</strong>
-                        <span style={{marginLeft: '0.5rem', fontSize: '0.75rem', color: 'var(--color-text-secondary)'}}>{regs.length} actividades</span>
+                        <span style={{marginLeft: '0.5rem', fontSize: '0.75rem', color: 'var(--color-text-secondary)'}}>{tot.actividades} actividades · {jornadas.length} {jornadas.length === 1 ? 'jornada' : 'jornadas'}</span>
                       </div>
-                      <span style={{color: '#28a745', fontSize: '0.78rem', fontWeight: 600}}>{formatMin(totalReal)}</span>
-                      <span style={{color: '#dc3545', fontSize: '0.75rem'}}>{formatMin(totalParo)} paro</span>
+                      {chipsHoras(tot)}
                     </div>
                     <button
-                      onClick={() => {
-                        const periodo = `${reporteFechaDesde || 'Inicio'} al ${reporteFechaHasta || 'Actual'}`
-                        const tablas = `<h3>${operador} <span style="font-size:11px;color:var(--color-text-secondary);font-weight:normal;">(${regs.length} actividades)</span></h3>${generarTablaOperador(regs)}`
-                        mostrarPrintPreview(generarHtmlReporte('Operaciones Agrícolas', 'Actividades de Tractores', periodo, tablas))
-                      }}
+                      onClick={() => mostrarPrintPreview(generarHtmlReporte('Operaciones Agrícolas', 'Actividades de Tractores', periodoReporte(), generarHtmlOperador(op)))}
                       style={{background: 'transparent', border: '1px solid var(--color-border)', borderRadius: '4px', padding: '0.3rem 0.5rem', cursor: 'pointer', color: '#7b1fa2', fontSize: '0.85rem'}}
                       title="Imprimir reporte"
                     >
@@ -783,24 +953,20 @@ function ReporteActividades() {
                     </button>
                   </div>
 
-                  {Object.entries(porDia).sort((a, b) => b[0].localeCompare(a[0])).map(([fecha, regsDia]) => {
-                    const horasDia = regsDia.reduce((s, r) => s + (r.tiempo_real || 0), 0)
-                    const paroDia = regsDia.reduce((s, r) => s + (r.tiempo_paro || 0), 0)
-                    const fechaLabel = fecha !== 'Sin fecha'
-                      ? new Date(fecha + 'T12:00:00').toLocaleDateString('es-EC', {weekday: 'short', day: '2-digit', month: 'short', year: 'numeric'})
-                      : 'Sin fecha'
+                  {jornadas.map((j) => {
+                    const regsDia = j.regs
+                    const tipo = etiquetaTipoDia(j)
                     return (
-                      <div key={fecha} style={{marginBottom: '0.3rem'}}>
-                        <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0.3rem 0.8rem', background: 'var(--color-bg-light)', borderLeft: '2px solid var(--color-border)', fontSize: '0.76rem'}}>
-                          <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem'}}>
+                      <div key={`${j.dia}-${regsDia[0]?.id}`} style={{marginBottom: '0.3rem'}}>
+                        <div style={{display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '0.5rem', flexWrap: 'wrap', padding: '0.3rem 0.8rem', background: 'var(--color-bg-light)', borderLeft: `2px solid ${tipo ? '#dc3545' : 'var(--color-border)'}`, fontSize: '0.76rem'}}>
+                          <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap'}}>
                             <i className='bx bx-calendar' style={{color: 'var(--color-primary-texto)', fontSize: '0.85rem'}}></i>
-                            <span style={{fontWeight: 600, color: 'var(--color-text-primary)', textTransform: 'capitalize'}}>{fechaLabel}</span>
+                            <span style={{fontWeight: 600, color: 'var(--color-text-primary)', textTransform: 'capitalize'}}>{rangoJornada(j)}</span>
+                            <span style={{background: j.turno === 'NOCHE' ? '#1565c0' : '#6c757d', color: 'white', padding: '0 5px', borderRadius: '4px', fontSize: '0.65rem'}}>{etiquetaTurno(j)}</span>
+                            {tipo && <span style={{background: '#dc3545', color: 'white', padding: '0 5px', borderRadius: '4px', fontSize: '0.65rem'}}>{tipo}</span>}
                             <span style={{color: 'var(--color-text-secondary)', fontSize: '0.7rem'}}>{regsDia.length} {regsDia.length === 1 ? 'actividad' : 'actividades'}</span>
                           </div>
-                          <div style={{display: 'flex', gap: '0.8rem'}}>
-                            <span style={{color: '#28a745', fontWeight: 600}}>{formatMin(horasDia)}</span>
-                            <span style={{color: '#dc3545', fontSize: '0.72rem'}}>{formatMin(paroDia)} paro</span>
-                          </div>
+                          {chipsHoras(j)}
                         </div>
                         <div style={{overflowX: 'auto'}}>
                           <table className="tabla" style={{fontSize: '0.78rem'}}>
@@ -816,22 +982,31 @@ function ReporteActividades() {
                                 <th>T. Trabajado</th>
                                 <th>T. Paro</th>
                                 <th>Estado</th>
-                                <th style={{whiteSpace: 'nowrap'}}>
-                                  {puedeRevisar && regsDia.some(esRevisable) ? (
-                                    <label style={{display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer'}} title="Marcar todas las del día">
-                                      <input type="checkbox"
-                                        checked={regsDia.filter(esRevisable).every(r => seleccion[r.id])}
-                                        onChange={e => { const v = e.target.checked; setSeleccion(prev => { const n = { ...prev }; regsDia.filter(esRevisable).forEach(r => { n[r.id] = v }); return n }) }} />
-                                      Revisión
-                                    </label>
-                                  ) : 'Revisión'}
-                                </th>
+                                {(() => {
+                                  const revisables = regsDia.filter(esRevisable)
+                                  if (!puedeRevisar || !revisables.length) return <th style={{whiteSpace: 'nowrap'}}>Revisión</th>
+                                  const todas = revisables.every(r => seleccion[r.id])
+                                  const marcarTodas = (v) => setSeleccion(prev => { const n = { ...prev }; revisables.forEach(r => { n[r.id] = v }); return n })
+                                  // Toda la celda es clicable (no solo el cuadro)
+                                  return (
+                                    <th className="celda-check" onClick={() => marcarTodas(!todas)} title="Marcar todas las de la jornada">
+                                      <span>
+                                        <input type="checkbox" checked={todas}
+                                          onClick={e => e.stopPropagation()}
+                                          onChange={e => marcarTodas(e.target.checked)} />
+                                        Revisión
+                                      </span>
+                                    </th>
+                                  )
+                                })()}
                               </tr>
                             </thead>
                             <tbody>
                               {regsDia.map(r => {
-                                const inicio = r.fecha_historial?.find(h => h.accion === 'inicio')
+                                const inicio = eventoInicio(r)
                                 const fin = eventoFin(r)
+                                // dd/mm cuando el evento cae en otro dia que el inicio de la jornada
+                                const otroDia = (ev) => ev && diaISO(new Date(ev.fecha)) !== j.dia ? fmtDiaMes(new Date(ev.fecha)) : null
                                 return (
                                   <tr key={r.id}>
                                     <td>{r.tractor || '-'}</td>
@@ -840,30 +1015,34 @@ function ReporteActividades() {
                                     <td>{r.lote || '-'}</td>
                                     <td>{r.hacienda || '-'}</td>
                                     {[['inicio', inicio], ['fin', fin]].map(([campo, ev]) => (
-                                      <td key={campo}>
+                                      <td key={campo} style={{whiteSpace: 'nowrap'}}>
+                                        {otroDia(ev) && <span style={{display: 'block', fontSize: '0.65rem', color: '#e67e22', fontWeight: 600}} title="Otro día que el inicio de la jornada">{otroDia(ev)}</span>}
                                         {esRevisable(r) && ev ? (
                                           <HoraRueda
                                             value={ediciones[r.id]?.[campo] || horaDe(ev.fecha)}
                                             modificado={!!ediciones[r.id]?.[campo] && ediciones[r.id][campo] !== horaDe(ev.fecha)}
                                             onChange={hhmm => editarHora(r, campo, hhmm)} />
-                                        ) : (ev ? new Date(ev.fecha).toLocaleTimeString('es-EC', {hour:'2-digit', minute:'2-digit'}) : '-')}
+                                        ) : (ev ? fmtHora(new Date(ev.fecha)) : '-')}
                                       </td>
                                     ))}
-                                    <td style={{color: '#28a745', fontWeight: 500}}>{formatMin(r.tiempo_real)}</td>
-                                    <td style={{color: '#dc3545', fontWeight: 500}}>{formatMin(r.tiempo_paro)}</td>
+                                    <td style={{color: '#28a745', fontWeight: 500}}>{fmtMin(r.tiempo_real)}</td>
+                                    <td style={{color: '#dc3545', fontWeight: 500}}>{fmtMin(r.tiempo_paro)}</td>
                                     <td><span style={{background: r.estado === 'Finalizado' ? '#6c757d' : r.estado === 'Ejecutándose' ? '#28a745' : '#ffc107', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem'}}>{r.estado}</span></td>
-                                    <td>
+                                    <td className={esRevisable(r) && r.revision_estado !== 'REVISADO' ? 'celda-check' : undefined}
+                                      onClick={esRevisable(r) ? () => setSeleccion(prev => ({ ...prev, [r.id]: !prev[r.id] })) : undefined}
+                                      title={esRevisable(r) ? 'Marcar para guardar como revisada' : undefined}>
                                       {r.revision_estado === 'REVISADO' ? (
                                         <span title={`Revisado por ${r.revisado_por_nombre || r.revisado_por || '-'} el ${fmtFechaHora(r.fecha_revision)}`}
                                           style={{background: '#1b5e20', color: 'white', padding: '2px 6px', borderRadius: '4px', fontSize: '0.7rem', whiteSpace: 'nowrap', cursor: 'help'}}>
                                           <i className='bx bxs-lock-alt'></i> Revisado
                                         </span>
                                       ) : esRevisable(r) ? (
-                                        <label style={{display: 'flex', alignItems: 'center', gap: '0.3rem', cursor: 'pointer', fontSize: '0.7rem', whiteSpace: 'nowrap'}} title="Marcar para guardar como revisada">
+                                        <span>
                                           <input type="checkbox" checked={!!seleccion[r.id]}
+                                            onClick={e => e.stopPropagation()}
                                             onChange={e => setSeleccion(prev => ({ ...prev, [r.id]: e.target.checked }))} />
                                           No revisado
-                                        </label>
+                                        </span>
                                       ) : (
                                         <span style={{color: 'var(--color-text-secondary)', fontSize: '0.7rem', whiteSpace: 'nowrap'}}>No revisado</span>
                                       )}
@@ -1185,7 +1364,58 @@ function ReporteActividades() {
         </div>
       )}
 
+      {showFeriados && (
+        <div style={{position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'}}
+          onClick={() => !guardandoFeriados && setShowFeriados(false)}>
+          <div onClick={e => e.stopPropagation()}
+            style={{background: 'var(--color-bg-white)', borderRadius: '12px', width: '100%', maxWidth: '520px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.3)'}}>
+            <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.8rem 1.2rem', borderBottom: '1px solid var(--color-border)', background: 'var(--color-bg-light)'}}>
+              <span style={{fontWeight: 600, color: 'var(--color-text-primary)'}}><i className='bx bx-calendar-star'></i> Feriados <small style={{fontWeight: 400, color: 'var(--color-text-secondary)'}}>— horas al 100%</small></span>
+              <button onClick={() => setShowFeriados(false)} disabled={guardandoFeriados} style={{background: 'var(--color-border)', border: 'none', borderRadius: '6px', padding: '0.3rem 0.6rem', cursor: 'pointer', color: 'var(--color-text-secondary)'}}>
+                <i className='bx bx-x'></i>
+              </button>
+            </div>
+            <div style={{display: 'flex', gap: '0.4rem', padding: '0.8rem 1.2rem', flexWrap: 'wrap', borderBottom: '1px solid var(--color-border)'}}>
+              <input type="date" className="form-control" value={nuevoFeriado.fecha} onChange={e => setNuevoFeriado(p => ({ ...p, fecha: e.target.value }))} style={{maxWidth: '160px', fontSize: '0.85rem'}} />
+              <input type="text" className="form-control" placeholder="Nombre (ej. Navidad)" maxLength={100} value={nuevoFeriado.nombre}
+                onChange={e => setNuevoFeriado(p => ({ ...p, nombre: e.target.value }))}
+                onKeyDown={e => { if (e.key === 'Enter') agregarFeriado() }}
+                style={{flex: 1, minWidth: '140px', fontSize: '0.85rem'}} />
+              <button onClick={agregarFeriado} disabled={!nuevoFeriado.fecha}
+                style={{background: nuevoFeriado.fecha ? '#7b1fa2' : 'var(--color-border)', color: 'white', border: 'none', borderRadius: '6px', padding: '0.4rem 0.8rem', cursor: nuevoFeriado.fecha ? 'pointer' : 'default', fontSize: '0.85rem'}}>
+                <i className='bx bx-plus'></i> Agregar
+              </button>
+            </div>
+            <div style={{flex: 1, overflowY: 'auto', padding: '0.4rem 1.2rem'}}>
+              {feriadosEdit.length === 0 && <p style={{textAlign: 'center', color: 'var(--color-text-secondary)', fontSize: '0.85rem'}}>No hay feriados ingresados</p>}
+              {feriadosEdit.map(f => (
+                <div key={f.fecha} style={{display: 'flex', alignItems: 'center', gap: '0.6rem', padding: '0.45rem 0', borderBottom: '1px solid var(--color-border)', fontSize: '0.85rem'}}>
+                  <span style={{fontWeight: 600, minWidth: '150px', textTransform: 'capitalize'}}>{fmtDia(new Date(f.fecha + 'T12:00:00'))}</span>
+                  <span style={{flex: 1, color: 'var(--color-text-secondary)'}}>{f.nombre || '-'}</span>
+                  <button onClick={() => setFeriadosEdit(prev => prev.filter(x => x.fecha !== f.fecha))} title="Quitar"
+                    style={{background: 'transparent', border: 'none', color: '#dc3545', cursor: 'pointer', fontSize: '1.1rem'}}>
+                    <i className='bx bx-trash'></i>
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div style={{display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', padding: '0.8rem 1.2rem', borderTop: '1px solid var(--color-border)'}}>
+              <button onClick={() => setShowFeriados(false)} disabled={guardandoFeriados}
+                style={{background: 'var(--color-bg-light)', border: '1px solid var(--color-border)', borderRadius: '6px', padding: '0.4rem 1rem', cursor: 'pointer', color: 'var(--color-text-primary)'}}>Cancelar</button>
+              <button onClick={guardarFeriados} disabled={guardandoFeriados}
+                style={{background: '#28a745', color: 'white', border: 'none', borderRadius: '6px', padding: '0.4rem 1rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem'}}>
+                <i className={`bx ${guardandoFeriados ? 'bx-loader-alt bx-spin' : 'bx-save'}`}></i> Guardar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <style>{`
+        .celda-check { cursor: pointer; user-select: none; white-space: nowrap; }
+        .celda-check > span { display: inline-flex; align-items: center; gap: 0.45rem; font-size: 0.75rem; }
+        .celda-check input[type="checkbox"] { width: 20px; height: 20px; margin: 0; cursor: pointer; accent-color: #7b1fa2; flex-shrink: 0; }
+        tbody .celda-check:hover { background: rgba(123, 31, 162, 0.08); }
         .reporte-cal {
           height: calc(100vh - 60px);
           display: flex;

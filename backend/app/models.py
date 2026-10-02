@@ -156,6 +156,16 @@ class RegistroRevision(_Empresa, Base):
     fecha = Column(DateTime, server_default=func.now())
 
 
+class Parametro(_Empresa, Base):
+    """Configuracion editable del modulo (clave -> JSON), p.ej. 'jornada'."""
+    __tablename__ = "parametro"
+    id = Column("id_parametro", BigInteger, primary_key=True)
+    clave = Column(String(60), nullable=False)
+    valor = Column(JSONB, nullable=False, default=dict)
+    actualizado_por = Column(String(150))
+    fecha_actualizacion = Column(DateTime, server_default=func.now())
+
+
 class TractorFalla(_Empresa, Base):
     __tablename__ = "falla_tractor"
     id = Column("id_falla_tractor", BigInteger, primary_key=True)
