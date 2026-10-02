@@ -772,7 +772,7 @@ function ReporteActividades() {
   }
 
   return (
-    <div className="reporte-cal">
+    <div className={`reporte-cal${tabActiva === 'reporte' ? ' reporte-cal-libre' : ''}`}>
       {/* Tabs */}
       <div className="cal-tabs">
         <button className={`cal-tab ${tabActiva === 'calendario' ? 'cal-tab-activa' : ''}`} onClick={() => setTabActiva('calendario')}>
@@ -1885,6 +1885,11 @@ function ReporteActividades() {
           flex: 1;
           overflow-y: auto;
         }
+        /* En la pestana Reporte la pagina crece con el contenido: un solo scroll, el de la aplicacion
+           (el calendario si conserva su alto fijo con scroll interno) */
+        .reporte-cal-libre { height: auto; min-height: calc(100vh - 60px); overflow: visible; }
+        .reporte-cal-libre .reporte-vista,
+        .reporte-cal-libre .reporte-tabla-container { overflow: visible; flex: none; }
         .reporte-operador-grupo {
           margin-bottom: 1.5rem;
         }
