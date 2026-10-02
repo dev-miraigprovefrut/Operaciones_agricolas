@@ -12,7 +12,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from .config import settings
-from .routers import admin, catalogos, cosecha, empresas, lotes, sesion, tractores
+from .routers import admin, catalogos, cosecha, empresas, fichas, lotes, sesion, tractores
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("operagricola")
@@ -49,21 +49,22 @@ def health():
     return {"status": "ok"}
 
 
-for r in (sesion, admin, catalogos, tractores, cosecha, lotes, empresas):
+for r in (sesion, admin, catalogos, tractores, cosecha, lotes, empresas, fichas):
     app.include_router(r.router)
 
 
 @app.on_event("startup")
 def iniciar_sync_informix():
     """Sync con Informix dentro del proceso web: fichas de cosecha cada 2 horas
-    (en punto, desde las 6am Ecuador) y lotes viernes y lunes. Solo si
+    (en punto, desde las 6am Ecuador), lotes viernes y lunes, y fichas de
+    aplicacion fitosanitaria cada hora de 6am a 6pm (con reintento de envios). Solo si
     SYNC_INFORMIX esta activo (una sola instancia debe correrlo)."""
     if not settings.SYNC_INFORMIX:
         logger.info("Sync Informix APAGADO (SYNC_INFORMIX=false)")
         return
     from apscheduler.schedulers.background import BackgroundScheduler
 
-    from .sync import cosecha_recibido, lotes as sync_lotes
+    from .sync import cosecha_recibido, fichas as sync_fichas, lotes as sync_lotes
 
     def _cosecha():
         try:
@@ -77,7 +78,14 @@ def iniciar_sync_informix():
         except Exception:  # noqa: BLE001
             logger.exception("Error en sync de lotes")
 
+    def _fichas():
+        try:
+            sync_fichas.main()
+        except Exception:  # noqa: BLE001
+            logger.exception("Error en sync de fichas de aplicacion")
+
     sched = BackgroundScheduler(timezone="UTC")
+    sched.add_job(_fichas, "cron", hour="11-23", minute=40, coalesce=True, max_instances=1, misfire_grace_time=600)
     sched.add_job(_cosecha, "cron", hour="1/2", minute=0, coalesce=True, max_instances=1, misfire_grace_time=600)
     sched.add_job(_lotes, "cron", day_of_week="fri,mon", minute=15, coalesce=True, max_instances=1,
                   misfire_grace_time=600)

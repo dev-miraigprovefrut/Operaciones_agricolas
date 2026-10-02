@@ -138,6 +138,7 @@ function Nav({ isOpen, onClose }) {
                 <div className="nav-submenu">
                   <ul className="nav-submenu-items">
                     {tienePermiso('reportes_actividades') && <li><Link to="/reportes/actividades" className="nav-submenu-link" onClick={closeMenus}><i className='bx bx-calendar'></i> Actividades</Link></li>}
+                    {(tienePermiso('reportes_actividades') || tienePermiso('revisar_actividades')) && <li><Link to="/reportes/fichas-aplicacion" className="nav-submenu-link" onClick={closeMenus}><i className='bx bx-spray-can'></i> Fichas de aplicación</Link></li>}
                     {tienePermiso('reportes_cosecha') && <li><Link to="/reportes/cosecha" className="nav-submenu-link" onClick={closeMenus}><i className='bx bx-leaf'></i> Cosecha</Link></li>}
                     {tienePermiso('reportes_seguridad') && <li><Link to="/reportes/seguridad" className="nav-submenu-link" onClick={closeMenus}><i className='bx bx-shield-quarter'></i> R. Camiones</Link></li>}
                   </ul>

@@ -8,6 +8,7 @@ import ActividadesTractores from './pages/ActividadesTractores'
 import RegistrarActTractores from './pages/RegistrarActTractores'
 import FichaCosecha from './pages/FichaCosecha'
 import ReporteActividades from './pages/ReporteActividades'
+import FichasAplicacion from './pages/FichasAplicacion'
 import ReportesCosecha from './pages/ReportesCosecha'
 import ReporteSeguridad from './pages/ReporteSeguridad'
 import CatalogoCamiones from './pages/CatalogoCamiones'
@@ -333,6 +334,7 @@ function App() {
                   {/* Reportes */}
                   <Route path="/reportes" element={<div>Reportes - En construcción</div>} />
                   <Route path="/reportes/actividades" element={<ReporteActividades />} />
+                  <Route path="/reportes/fichas-aplicacion" element={<FichasAplicacion />} />
                   <Route path="/reportes/cosecha" element={<ReportesCosecha />} />
                   <Route path="/reportes/seguridad" element={<ReporteSeguridad />} />
                   {/* Configuraciones */}

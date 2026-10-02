@@ -80,3 +80,48 @@ def ejecutar_query(sql: str, params: list | None = None) -> list[list[str]]:
         return filas
     finally:
         conn.close()
+
+
+def ejecutar_escritura(sentencias: list[tuple[str, list]], probar: bool = False) -> int:
+    """Ejecuta UPDATE/INSERT en Informix en UNA transaccion. Cada parametro va
+    tipado: int -> setInt, float/Decimal -> setBigDecimal, None -> NULL, resto
+    -> setString. Devuelve las filas afectadas. Con probar=True hace ROLLBACK
+    (para verificar sin cambiar nada)."""
+    if not settings.DB_INFORMIX_PASSWORD:
+        raise RuntimeError("DB_INFORMIX_PASSWORD no configurada")
+    jpype = _jvm()
+    url = (f"jdbc:informix-sqli://{settings.DB_INFORMIX_HOST}:{settings.DB_INFORMIX_PORT}/"
+           f"{settings.DB_INFORMIX_NAME}:INFORMIXSERVER={settings.DB_INFORMIX_SERVER}")
+    dm = jpype.JClass("java.sql.DriverManager")
+    big = jpype.JClass("java.math.BigDecimal")
+    tipos = jpype.JClass("java.sql.Types")
+    dm.setLoginTimeout(10)
+    conn = dm.getConnection(url, settings.DB_INFORMIX_USER, settings.DB_INFORMIX_PASSWORD)
+    total = 0
+    try:
+        conn.setAutoCommit(False)
+        for sql, params in sentencias:
+            st = conn.prepareStatement(sql)
+            for i, p in enumerate(params or [], 1):
+                if p is None:
+                    st.setNull(i, tipos.VARCHAR)
+                elif isinstance(p, bool):
+                    st.setString(i, "S" if p else "N")
+                elif isinstance(p, int):
+                    st.setInt(i, p)
+                elif isinstance(p, float) or type(p).__name__ == "Decimal":
+                    st.setBigDecimal(i, big(str(p)))
+                else:
+                    st.setString(i, str(p))
+            total += int(st.executeUpdate())
+            st.close()
+        if probar:
+            conn.rollback()
+        else:
+            conn.commit()
+        return total
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()

@@ -326,3 +326,72 @@ DO $$ BEGIN
     ALTER TABLE registro ADD CONSTRAINT ck_registro_equipo CHECK (equipo IN ('Tractores', 'Drones'));
 EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 CREATE INDEX IF NOT EXISTS ix_registro_equipo ON registro (equipo);
+
+-- ------------------------------------------------- fichas de aplicacion fitosanitaria
+-- Copia semanal desde Informix (agdocul: actividades 83 herbicida y 93
+-- fitosanitaria, tipos IN/SE, todos los estados menos AN). Una ficha por orden
+-- de cultivo + semana + actividad; la aplica UN solo equipo (esta calculada por
+-- bomba). Lo que se hizo en campo se guarda aqui y se escribe en agdocul (el
+-- estado CN lo ponen en el ERP al revisar).
+CREATE TABLE IF NOT EXISTS ficha_aplicacion (
+    id_ficha_aplicacion  BIGSERIAL    PRIMARY KEY,
+    tenant_id            BIGINT       NOT NULL DEFAULT 1,
+    numero_empresa       VARCHAR(10)  NOT NULL DEFAULT '222',
+    ocult                VARCHAR(20)  NOT NULL,           -- orden de cultivo
+    anio                 INTEGER      NOT NULL,
+    semana               INTEGER      NOT NULL,
+    cod_acamp            INTEGER      NOT NULL,           -- 83 herbicida / 93 fitosanitaria
+    actividad            VARCHAR(150),
+    lote                 VARCHAR(100),
+    hacienda             VARCHAR(150),
+    proyecto             VARCHAR(150),
+    cultivo              VARCHAR(150),
+    hectareas            NUMERIC(12,4),
+    edad_sem             INTEGER,
+    estado_erp           VARCHAR(5),                      -- resumen: PE / AU / CN / ...
+    aplicada_en_erp      BOOLEAN      NOT NULL DEFAULT FALSE,  -- el ERP ya tiene datos de aplicacion
+    -- aplicacion en campo
+    estado_aplicacion    VARCHAR(15)  NOT NULL DEFAULT 'PENDIENTE',   -- PENDIENTE / EN_CURSO / APLICADA
+    id_registro          BIGINT       REFERENCES registro (id_registro) ON DELETE SET NULL,
+    equipo               VARCHAR(20),                     -- Tractores / Drones
+    tractor              VARCHAR(150),                    -- tractor o dron
+    bomba                VARCHAR(150),
+    cod_mapli            INTEGER,                         -- 34 DRON / 14 ALTO DESPEJE ASPERSION
+    temperatura          NUMERIC(6,2),
+    velocidad_viento     NUMERIC(6,2),
+    num_bombas           NUMERIC(8,2),
+    aplicador            VARCHAR(200),
+    usuario_inicio       VARCHAR(150),
+    fecha_aplicacion     DATE,
+    hora_inicio          TIME,
+    hora_fin             TIME,
+    -- envio a Informix
+    envio_erp            VARCHAR(10),                     -- PENDIENTE / ENVIADO / ERROR
+    envio_error          TEXT,
+    fecha_envio          TIMESTAMP,
+    fecha_sincronizacion TIMESTAMP    NOT NULL DEFAULT now(),
+    CONSTRAINT uq_ficha_aplicacion UNIQUE (tenant_id, numero_empresa, ocult, anio, semana, cod_acamp),
+    CONSTRAINT ck_ficha_estado_aplicacion CHECK (estado_aplicacion IN ('PENDIENTE', 'EN_CURSO', 'APLICADA'))
+);
+CREATE INDEX IF NOT EXISTS ix_ficha_aplicacion_semana ON ficha_aplicacion (anio, semana);
+CREATE INDEX IF NOT EXISTS ix_ficha_aplicacion_ocult ON ficha_aplicacion (ocult);
+CREATE INDEX IF NOT EXISTS ix_ficha_aplicacion_envio ON ficha_aplicacion (envio_erp);
+
+CREATE TABLE IF NOT EXISTS ficha_aplicacion_producto (
+    id_ficha_aplicacion_producto BIGSERIAL PRIMARY KEY,
+    id_ficha_aplicacion  BIGINT       NOT NULL REFERENCES ficha_aplicacion (id_ficha_aplicacion) ON DELETE CASCADE,
+    cod_docul            BIGINT       NOT NULL UNIQUE,    -- fila de agdocul
+    tipo                 VARCHAR(5),                      -- IN / SE
+    cod_prod             VARCHAR(40),
+    nombre_comercial     VARCHAR(150),
+    descripcion          VARCHAR(250),
+    clasificacion        VARCHAR(100),
+    unidad               VARCHAR(20),
+    cantidad             NUMERIC(14,4),                   -- planificada (dosis x hectareas)
+    dosis_ha             NUMERIC(14,4),
+    carencia             VARCHAR(30),
+    estado_erp           VARCHAR(5),
+    cantidad_salida      NUMERIC(14,4),                   -- despachada de bodega
+    cantidad_aplicada    NUMERIC(14,4)                    -- real (la llena el operador; luego docul_can_rapli)
+);
+CREATE INDEX IF NOT EXISTS ix_ficha_producto_ficha ON ficha_aplicacion_producto (id_ficha_aplicacion);

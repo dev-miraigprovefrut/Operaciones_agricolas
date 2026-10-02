@@ -4,7 +4,7 @@ Las columnas siguen la convencion nueva (id_<tabla>, estado ACTIVO/INACTIVO),
 pero los ATRIBUTOS Python conservan los nombres que usa la API (id,
 id_check, codigo_act...): asi las respuestas JSON no cambian para el frontend.
 """
-from sqlalchemy import BigInteger, Boolean, Column, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import BigInteger, Boolean, Column, Date, DateTime, Float, ForeignKey, Integer, Numeric, String, Text, Time
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -179,3 +179,64 @@ class TractorFalla(_Empresa, Base):
     estado = Column(String(20), nullable=False, default="pendiente")
     fecha = Column(DateTime, server_default=func.now())
     fecha_creacion = Column(DateTime, server_default=func.now())
+
+
+class FichaAplicacion(_Empresa, Base):
+    """Ficha de aplicacion fitosanitaria (copia de agdocul por orden + semana +
+    actividad) y lo que se hizo en campo. Ver sync/fichas.py."""
+    __tablename__ = "ficha_aplicacion"
+    id = Column("id_ficha_aplicacion", BigInteger, primary_key=True)
+    ocult = Column(String(20), nullable=False)
+    anio = Column(Integer, nullable=False)
+    semana = Column(Integer, nullable=False)
+    cod_acamp = Column(Integer, nullable=False)
+    actividad = Column(String(150))
+    lote = Column(String(100))
+    hacienda = Column(String(150))
+    proyecto = Column(String(150))
+    cultivo = Column(String(150))
+    hectareas = Column(Numeric(12, 4))
+    edad_sem = Column(Integer)
+    estado_erp = Column(String(5))
+    aplicada_en_erp = Column(Boolean, nullable=False, default=False)
+    estado_aplicacion = Column(String(15), nullable=False, default="PENDIENTE")
+    id_registro = Column(BigInteger, ForeignKey("registro.id_registro", ondelete="SET NULL"))
+    equipo = Column(String(20))
+    tractor = Column(String(150))
+    bomba = Column(String(150))
+    cod_mapli = Column(Integer)
+    temperatura = Column(Numeric(6, 2))
+    velocidad_viento = Column(Numeric(6, 2))
+    num_bombas = Column(Numeric(8, 2))
+    aplicador = Column(String(200))
+    usuario_inicio = Column(String(150))
+    fecha_aplicacion = Column(Date)
+    hora_inicio = Column(Time)
+    hora_fin = Column(Time)
+    envio_erp = Column(String(10))
+    envio_error = Column(Text)
+    fecha_envio = Column(DateTime)
+    fecha_sincronizacion = Column(DateTime, server_default=func.now())
+    productos = relationship("FichaAplicacionProducto", back_populates="ficha", cascade="all, delete-orphan",
+                             order_by="FichaAplicacionProducto.cod_docul")
+
+
+class FichaAplicacionProducto(Base):
+    __tablename__ = "ficha_aplicacion_producto"
+    id = Column("id_ficha_aplicacion_producto", BigInteger, primary_key=True)
+    id_ficha_aplicacion = Column(BigInteger, ForeignKey("ficha_aplicacion.id_ficha_aplicacion", ondelete="CASCADE"),
+                                 nullable=False)
+    cod_docul = Column(BigInteger, nullable=False, unique=True)
+    tipo = Column(String(5))
+    cod_prod = Column(String(40))
+    nombre_comercial = Column(String(150))
+    descripcion = Column(String(250))
+    clasificacion = Column(String(100))
+    unidad = Column(String(20))
+    cantidad = Column(Numeric(14, 4))
+    dosis_ha = Column(Numeric(14, 4))
+    carencia = Column(String(30))
+    estado_erp = Column(String(5))
+    cantidad_salida = Column(Numeric(14, 4))
+    cantidad_aplicada = Column(Numeric(14, 4))
+    ficha = relationship("FichaAplicacion", back_populates="productos")

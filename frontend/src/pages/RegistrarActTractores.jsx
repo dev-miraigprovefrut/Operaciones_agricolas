@@ -3,6 +3,7 @@ import Swal from 'sweetalert2'
 import { confirmar, exito, advertencia, error as swalError } from '../components/SwalConfig'
 import { fetchWithOffline, addToQueue, processQueue, getPendingCount, getPendingItems, cacheData, getCachedData } from '../services/syncQueue'
 import useOnlineStatus from '../services/useOnlineStatus'
+import FichaAplicacion from '../components/FichaAplicacion'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8007'
 
@@ -78,6 +79,11 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
   const [checklist, setChecklist] = useState({})
   const [procesando, setProcesando] = useState(false)
   const [dronesUsados, setDronesUsados] = useState([])   // sugerencias hasta que exista el catalogo de Activos
+  // Ficha de aplicacion fitosanitaria (ERP) del lote elegido
+  const [fichas, setFichas] = useState([])
+  const [fichaId, setFichaId] = useState(null)
+  const [cargandoFichas, setCargandoFichas] = useState(false)
+  const [datosAplic, setDatosAplic] = useState({ temperatura: '', viento: '' })
 
   // Items del checklist por sección
   const checklistItems = {
@@ -122,6 +128,100 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
   }
 
   const allChecked = Object.values(checklist).length > 0 && Object.values(checklist).every(v => v)
+
+  // ---- Ficha de aplicacion fitosanitaria ----
+  // Actividad fitosanitaria: dron FITOSANITARIA, tractor APLICACIONES FITOSANITARIAS.
+  // Es "aplicacion" toda subactividad que no sea preparacion ni movilizacion.
+  const esFito = /FITOSANITARI/i.test(formData.actividad || '')
+  const esAplicacion = esFito && !!formData.subactividad && !/PREPARACI|MOVILIZACI/i.test(formData.subactividad)
+  const fichaSel = fichas.find(f => f.id === fichaId) || fichas[0] || null
+  const claveFicha = (tractor) => `oa_ficha_en_curso_${equipo}_${tractor || ''}`
+
+  useEffect(() => {
+    const ocult = String(formData.ordenCultivo || '')
+    if (!esFito || !/^\d+$/.test(ocult)) { setFichas([]); setFichaId(null); return }
+    let vivo = true
+    setCargandoFichas(true)
+    fetchWithOffline(`${API_URL}/api/fichas-aplicacion?ocult=${ocult}`, `fichas_${ocult}`)
+      .then(({ data }) => {
+        if (!vivo) return
+        const lista = Array.isArray(data) ? data : []
+        setFichas(lista)
+        // Preferir: la que ya aplica este equipo, la semana actual, herbicida si la subactividad lo dice, no aplicadas
+        const d = new Date(); const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
+        t.setUTCDate(t.getUTCDate() + 4 - (t.getUTCDay() || 7))
+        const semana = Math.ceil(((t - new Date(Date.UTC(t.getUTCFullYear(), 0, 1))) / 86400000 + 1) / 7)
+        const acamp = /HERBICID/i.test(formData.subactividad || '') ? 83 : 93
+        const puntaje = f => (f.estado_aplicacion === 'EN_CURSO' && f.tractor === formData.tractor ? 1000 : 0)
+          + (f.semana === semana ? 100 : 0) + (f.cod_acamp === acamp ? 10 : 0) + (f.estado_aplicacion === 'PENDIENTE' ? 1 : 0)
+        const mejor = [...lista].sort((a, b) => puntaje(b) - puntaje(a))[0]
+        setFichaId(mejor ? mejor.id : null)
+      })
+      .finally(() => { if (vivo) setCargandoFichas(false) })
+    return () => { vivo = false }
+  }, [esFito, formData.ordenCultivo])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Inicia la ficha ANTES de crear la actividad: si otro equipo ya la tiene se
+  // detiene; sin conexion se encola y se sigue.
+  const iniciarFicha = async (ficha, temperatura, velocidad_viento) => {
+    const url = `${API_URL}/api/fichas-aplicacion/${ficha.id}/iniciar`
+    const body = { equipo, tractor: formData.tractor, bomba: formData.apero || null, temperatura, velocidad_viento,
+      aplicador: formData.operador || operadorActual }
+    try {
+      const ctrl = new AbortController(); const to = setTimeout(() => ctrl.abort(), 8000)
+      const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal: ctrl.signal })
+      clearTimeout(to)
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        advertencia({ titulo: 'Ficha de aplicación', texto: typeof data.detail === 'string' ? data.detail : 'No se pudo iniciar la ficha de aplicación' })
+        return false
+      }
+    } catch {
+      await addToQueue(url, 'POST', body, 'registro', 'Iniciar ficha de aplicación')
+    }
+    localStorage.setItem(claveFicha(formData.tractor), JSON.stringify({ id: ficha.id, productos: ficha.productos }))
+    return true
+  }
+
+  // Al finalizar la actividad: numero de bombas y cantidades reales -> se escribe en el ERP
+  const completarFicha = async (registro) => {
+    let guardada = null
+    try { guardada = JSON.parse(localStorage.getItem(claveFicha(registro.tractor)) || 'null') } catch { guardada = null }
+    if (!guardada) return
+    const prods = guardada.productos || []
+    const fmt = v => (v ?? '') === '' ? '' : Number(v)
+    const filas = prods.map((p, i) => `
+      <tr><td style="text-align:left;padding:3px 4px;font-size:0.8rem;">${p.nombre_comercial || p.cod_prod}<br><small style="color:#888;">plan ${fmt(p.cantidad)} ${p.unidad || ''}</small></td>
+      <td><input id="fa-c${i}" type="number" step="0.01" min="0" value="${fmt(p.cantidad_salida ?? p.cantidad)}" style="width:110px;padding:4px;border:1px solid #ccc;border-radius:4px;"> ${p.unidad || ''}</td></tr>`).join('')
+    const { value } = await Swal.fire({
+      title: 'Completar ficha de aplicación',
+      html: `<div style="text-align:left;font-size:0.85rem;">
+        <label style="display:block;font-weight:600;margin-bottom:0.3rem;">Número de bombas aplicadas *</label>
+        <input id="fa-bombas" type="number" step="0.5" min="0" style="width:100%;padding:6px;border:1px solid #ccc;border-radius:4px;margin-bottom:0.8rem;">
+        <div style="font-weight:600;margin-bottom:0.3rem;">Cantidad real aplicada</div>
+        <table style="width:100%;border-collapse:collapse;">${filas}</table>
+        <p style="color:#888;font-size:0.75rem;margin-top:0.6rem;">Fecha y horas se toman de la actividad. Se envía al ERP (el estado lo cambian al revisar).</p>
+      </div>`,
+      allowOutsideClick: false, allowEscapeKey: false, showCancelButton: false,
+      confirmButtonText: 'Guardar y enviar', confirmButtonColor: '#7b1fa2',
+      preConfirm: () => {
+        const bombas = parseFloat(document.getElementById('fa-bombas').value)
+        if (isNaN(bombas) || bombas < 0) { Swal.showValidationMessage('Ingrese el número de bombas'); return false }
+        const productos = prods.map((p, i) => ({ cod_docul: p.cod_docul, cantidad_aplicada: parseFloat(document.getElementById(`fa-c${i}`).value) || 0 }))
+        return { num_bombas: bombas, productos }
+      },
+    })
+    if (!value) return
+    const res = await offlineFetch(`${API_URL}/api/fichas-aplicacion/${guardada.id}/finalizar`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id_registro: registro.id || null, ...value })
+    }, 'Completar ficha de aplicación')
+    localStorage.removeItem(claveFicha(registro.tractor))
+    if (!res) { await exito('Ficha guardada sin conexión — se enviará al ERP al sincronizar'); return }
+    const data = await res.json().catch(() => ({}))
+    if (data.envio_erp === 'ENVIADO') await exito('Ficha de aplicación enviada al ERP')
+    else advertencia({ titulo: 'Ficha guardada', texto: 'Se guardó la aplicación; el envío al ERP se reintentará automáticamente.' })
+  }
 
   const handleContinuar = () => {
     if (esDron) {
@@ -577,6 +677,28 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
 
   const handleIniciar = async () => {
     if (procesando) return
+    // Aplicacion fitosanitaria: ficha + temperatura y viento obligatorios antes de iniciar
+    let fichaIniciar = null
+    if (esAplicacion && (!registroSeleccionado || registroSeleccionado.estado === 'Pendiente')) {
+      if (fichaSel) {
+        const yaMia = fichaSel.estado_aplicacion === 'EN_CURSO' && fichaSel.tractor === formData.tractor
+        if (!yaMia) {
+          if (fichaSel.estado_aplicacion !== 'PENDIENTE') {
+            advertencia({ titulo: 'Ficha no disponible', texto: fichaSel.estado_aplicacion === 'APLICADA' ? 'Esta ficha ya fue aplicada. Elija otra ficha.' : `Esta ficha la está aplicando ${fichaSel.tractor}: una ficha la aplica un solo equipo.` })
+            return
+          }
+          const t = parseFloat(datosAplic.temperatura), v = parseFloat(datosAplic.viento)
+          if (isNaN(t) || isNaN(v)) {
+            advertencia({ titulo: 'Datos de aplicación', texto: 'Ingrese la temperatura y la velocidad del viento antes de iniciar.' })
+            return
+          }
+          fichaIniciar = { ficha: fichaSel, t, v }
+        }
+      } else {
+        const r = await confirmar({ titulo: 'Sin ficha de aplicación', html: `<p style="color:var(--color-bg-white);">No hay ficha de aplicación para esta orden en estas semanas. ¿Iniciar igual?</p>`, icono: 'warning' })
+        if (!r.isConfirmed) return
+      }
+    }
     // Validar que no haya otra actividad ejecutándose (global, cualquier tractor)
     const enEjecucion = registros.find(r => r.estado === 'Ejecutándose')
     if (enEjecucion) {
@@ -600,6 +722,7 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
     }
     setProcesando(true)
     try {
+      if (fichaIniciar && !(await iniciarFicha(fichaIniciar.ficha, fichaIniciar.t, fichaIniciar.v))) return
       let nuevoRegistro = null
       let res
       if (registroSeleccionado) {
@@ -729,12 +852,14 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ estado: 'Finalizado', ubicacion })
       }, 'Finalizar actividad')
+      const registroFin = registroSeleccionado
       await fetchData()
       limpiarFormulario()
       setVistaActiva('tabla')
       if (res === null) {
-        advertencia({ titulo: 'Sin conexión', texto: 'No se pudo confirmar con el servidor. Se guardó para reintentar automáticamente — revisa el indicador de pendientes hasta que sincronice.' })
+        await advertencia({ titulo: 'Sin conexión', texto: 'No se pudo confirmar con el servidor. Se guardó para reintentar automáticamente — revisa el indicador de pendientes hasta que sincronice.' })
       }
+      await completarFicha(registroFin)
     } catch (err) {
       console.error('Error finalizando:', err)
     } finally {
@@ -1617,6 +1742,13 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
                       </div>
                     )
                   })()}
+
+                  {/* Ficha de aplicacion fitosanitaria del lote */}
+                  {esFito && (
+                    <FichaAplicacion fichas={fichas} fichaId={fichaSel?.id} onSeleccionar={setFichaId} cargando={cargandoFichas}
+                      ocult={formData.ordenCultivo} esAplicacion={esAplicacion && (estadoRegistro === 'nuevo' || estadoRegistro === 'guardado')}
+                      datos={datosAplic} onDatos={setDatosAplic} tractor={formData.tractor} />
+                  )}
 
                   {/* Botones: Guardar e Iniciar (estado inicial) */}
                   {estadoRegistro === 'nuevo' && (
