@@ -46,6 +46,10 @@ function ReporteActividades() {
   const [feriadosEdit, setFeriadosEdit] = useState([])
   const [nuevoFeriado, setNuevoFeriado] = useState({ fecha: '', nombre: '' })
   const [guardandoFeriados, setGuardandoFeriados] = useState(false)
+  // Agregar una actividad que falto (desde el + de la jornada)
+  const [catalogoActs, setCatalogoActs] = useState([])
+  const [formAgregar, setFormAgregar] = useState(null)
+  const [guardandoAgregar, setGuardandoAgregar] = useState(false)
   const [zoomLevel, setZoomLevel] = useState(50) // px por hora
   const [tooltip, setTooltip] = useState(null) // {x, y, texto}
   const printIframeRef = useRef(null)
@@ -55,6 +59,10 @@ function ReporteActividades() {
     fetch(`${API_URL}/api/parametros/jornada`)
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setCfgJornada(d) })
+      .catch(() => {})
+    fetch(`${API_URL}/api/actividades`)
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setCatalogoActs(Array.isArray(d) ? d : []))
       .catch(() => {})
   }, [])
 
@@ -105,6 +113,33 @@ function ReporteActividades() {
   }, [])
   const toggleSeleccion = useCallback((id) => setSeleccion(prev => ({ ...prev, [id]: !prev[id] })), [])
   const marcarSeleccion = useCallback((ids, v) => setSeleccion(prev => { const n = { ...prev }; ids.forEach(id => { n[id] = v }); return n }), [])
+
+  // ---- Eliminar una actividad mal registrada (solo mientras NO este revisada) ----
+  const eliminarActividad = useCallback(async (r) => {
+    const nombre = r.actividad === 'APOYOS GENERALES' ? (r.subactividad || r.actividad) : r.actividad
+    const conf = await Swal.fire({
+      title: '¿Eliminar esta actividad?',
+      html: `<b>${r.usuario || ''}</b><br/>${nombre || ''}${r.subactividad && r.actividad !== 'APOYOS GENERALES' ? ' · ' + r.subactividad : ''}`,
+      input: 'text', inputPlaceholder: 'Motivo (opcional)',
+      icon: 'warning', showCancelButton: true, confirmButtonText: 'Sí, eliminar', cancelButtonText: 'Cancelar',
+      confirmButtonColor: '#dc3545', showLoaderOnConfirm: true,
+      preConfirm: async (motivo) => {
+        try {
+          const resp = await fetch(`${API_URL}/api/registros/${r.id}/eliminar`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ motivo: motivo || null })
+          })
+          const data = await resp.json().catch(() => ({}))
+          if (!resp.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'No se pudo eliminar')
+          return true
+        } catch (err) { Swal.showValidationMessage(err.message || 'Sin conexión con el servidor'); return false }
+      },
+    })
+    if (!conf.isConfirmed) return
+    setRegistros(prev => prev.filter(x => x.id !== r.id))
+    setSeleccion(prev => { const n = { ...prev }; delete n[r.id]; return n })
+    setEdiciones(prev => { const n = { ...prev }; delete n[r.id]; return n })
+    Swal.fire({ icon: 'success', title: 'Actividad eliminada', timer: 1200, showConfirmButton: false })
+  }, [])
 
   const guardarRevision = async () => {
     const ids = Object.keys(seleccion).filter(id => seleccion[id]).map(Number)
@@ -660,6 +695,43 @@ function ReporteActividades() {
     }
   }
 
+  // ---- Agregar una actividad que falto en una jornada ----
+  const aInputLocal = (d) => `${diaISO(d)}T${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  const abrirAgregar = (operador, j) => {
+    const conteo = {}
+    j.regs.forEach(r => { if (r.tractor) conteo[r.tractor] = (conteo[r.tractor] || 0) + 1 })
+    const tractor = Object.entries(conteo).sort((a, b) => b[1] - a[1])[0]?.[0] || ''
+    const desde = j.finContado || j.fin || j.inicio || new Date()
+    const hasta = new Date(desde.getTime() + 60 * 60000)
+    setFormAgregar({ usuario: operador, actividad: '', subactividad: '', tractor, lote: '', hacienda: '',
+      inicio: aInputLocal(desde), fin: aInputLocal(hasta), motivo: '' })
+  }
+  const guardarAgregar = async () => {
+    const f = formAgregar
+    if (!f.actividad || !f.inicio || !f.fin) { Swal.fire({ icon: 'warning', title: 'Complete actividad, inicio y fin' }); return }
+    const act = catalogoActs.find(a => a.actividad === f.actividad)
+    setGuardandoAgregar(true)
+    try {
+      const resp = await fetch(`${API_URL}/api/registros/manual`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          usuario: f.usuario, actividad: f.actividad, subactividad: f.subactividad || null, tipo: act?.tipo || null,
+          tractor: f.tractor || null, lote: f.lote || null, hacienda: f.hacienda || null,
+          inicio: `${f.inicio}:00`, fin: `${f.fin}:00`, motivo: f.motivo || null,
+        })
+      })
+      const data = await resp.json().catch(() => ({}))
+      if (!resp.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Revise los datos ingresados')
+      setRegistros(prev => [data, ...prev])
+      setFormAgregar(null)
+      Swal.fire({ icon: 'success', title: 'Actividad agregada', timer: 1200, showConfirmButton: false })
+    } catch (err) {
+      Swal.fire({ icon: 'error', title: 'No se pudo agregar', text: err.message || 'Sin conexión con el servidor' })
+    } finally {
+      setGuardandoAgregar(false)
+    }
+  }
+
   const handleDescargarExcel = async () => {
     const operadores = getReporteOperadores()
 
@@ -973,6 +1045,12 @@ function ReporteActividades() {
                           <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap'}}>
                             <i className='bx bx-calendar' style={{color: 'var(--color-primary-texto)', fontSize: '0.85rem'}}></i>
                             <span style={{fontWeight: 600, color: 'var(--color-text-primary)', textTransform: 'capitalize'}}>{rangoJornada(j)}</span>
+                            {puedeRevisar && (
+                              <button onClick={() => abrirAgregar(operador, j)} title="Agregar una actividad que faltó en esta jornada"
+                                style={{background: '#7b1fa2', color: 'white', border: 'none', borderRadius: '50%', width: '22px', height: '22px', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', padding: 0}}>
+                                <i className='bx bx-plus'></i>
+                              </button>
+                            )}
                             <span style={{background: j.turno === 'NOCHE' ? '#1565c0' : '#6c757d', color: 'white', padding: '0 5px', borderRadius: '4px', fontSize: '0.65rem'}}>{etiquetaTurno(j)}</span>
                             {tipo && <span style={{background: '#dc3545', color: 'white', padding: '0 5px', borderRadius: '4px', fontSize: '0.65rem'}}>{tipo}</span>}
                             <span style={{color: 'var(--color-text-secondary)', fontSize: '0.7rem'}}>{regsDia.length} {regsDia.length === 1 ? 'actividad' : 'actividades'}</span>
@@ -982,7 +1060,7 @@ function ReporteActividades() {
                         <TablaJornada j={j} puedeRevisar={puedeRevisar}
                           sel={regsDia.filter(r => seleccion[r.id]).map(r => r.id).join(',')}
                           ed={regsDia.some(r => ediciones[r.id]) ? JSON.stringify(Object.fromEntries(regsDia.filter(r => ediciones[r.id]).map(r => [r.id, ediciones[r.id]]))) : ''}
-                          onToggle={toggleSeleccion} onMarcar={marcarSeleccion} onEditar={editarHora} />
+                          onToggle={toggleSeleccion} onMarcar={marcarSeleccion} onEditar={editarHora} onEliminar={eliminarActividad} />
                       </div>
                     )
                   })}
@@ -1293,6 +1371,72 @@ function ReporteActividades() {
           </div>
         </div>
       )}
+
+      {formAgregar && (() => {
+        const f = formAgregar
+        const set = (campo, v) => setFormAgregar(p => ({ ...p, [campo]: v, ...(campo === 'actividad' ? { subactividad: '' } : {}) }))
+        const act = catalogoActs.find(a => a.actividad === f.actividad)
+        const opciones = (campo) => [...new Set(registros.map(r => r[campo]).filter(Boolean))].sort()
+        const campo = { fontSize: '0.85rem', width: '100%' }
+        const etiqueta = { display: 'grid', gap: '0.2rem', fontSize: '0.78rem', color: 'var(--color-text-secondary)' }
+        return (
+          <div style={{position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'}}
+            onClick={() => !guardandoAgregar && setFormAgregar(null)}>
+            <div onClick={e => e.stopPropagation()}
+              style={{background: 'var(--color-bg-white)', borderRadius: '12px', width: '100%', maxWidth: '560px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.3)'}}>
+              <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.8rem 1.2rem', borderBottom: '1px solid var(--color-border)', background: 'var(--color-bg-light)'}}>
+                <span style={{fontWeight: 600, color: 'var(--color-text-primary)'}}><i className='bx bx-plus-circle'></i> Agregar actividad <small style={{fontWeight: 400, color: 'var(--color-text-secondary)'}}>— {f.usuario}</small></span>
+                <button onClick={() => setFormAgregar(null)} disabled={guardandoAgregar} style={{background: 'var(--color-border)', border: 'none', borderRadius: '6px', padding: '0.3rem 0.6rem', cursor: 'pointer', color: 'var(--color-text-secondary)'}}>
+                  <i className='bx bx-x'></i>
+                </button>
+              </div>
+              <div style={{padding: '1rem 1.2rem', overflowY: 'auto', display: 'grid', gap: '0.7rem', gridTemplateColumns: '1fr 1fr'}}>
+                <label style={{...etiqueta, gridColumn: '1 / -1'}}>Actividad *
+                  <select className="form-control" value={f.actividad} onChange={e => set('actividad', e.target.value)} style={campo}>
+                    <option value="">Seleccione…</option>
+                    {catalogoActs.map(a => <option key={a.id} value={a.actividad}>{a.actividad}</option>)}
+                  </select>
+                </label>
+                <label style={{...etiqueta, gridColumn: '1 / -1'}}>Subactividad
+                  <select className="form-control" value={f.subactividad} onChange={e => set('subactividad', e.target.value)} style={campo} disabled={!act?.subactividades?.length}>
+                    <option value="">{act?.subactividades?.length ? 'Seleccione…' : '-'}</option>
+                    {(act?.subactividades || []).map(sb => { const n = typeof sb === 'string' ? sb : sb.nombre; return <option key={n} value={n}>{n}</option> })}
+                  </select>
+                </label>
+                <label style={etiqueta}>Inicio *
+                  <input type="datetime-local" className="form-control" value={f.inicio} onChange={e => set('inicio', e.target.value)} style={campo} />
+                </label>
+                <label style={etiqueta}>Fin *
+                  <input type="datetime-local" className="form-control" value={f.fin} onChange={e => set('fin', e.target.value)} style={campo} />
+                </label>
+                <label style={{...etiqueta, gridColumn: '1 / -1'}}>Tractor
+                  <input className="form-control" list="ag-tractores" value={f.tractor} onChange={e => set('tractor', e.target.value)} style={campo} />
+                  <datalist id="ag-tractores">{opciones('tractor').map(v => <option key={v} value={v} />)}</datalist>
+                </label>
+                <label style={etiqueta}>Lote
+                  <input className="form-control" list="ag-lotes" value={f.lote} onChange={e => set('lote', e.target.value)} style={campo} />
+                  <datalist id="ag-lotes">{opciones('lote').map(v => <option key={v} value={v} />)}</datalist>
+                </label>
+                <label style={etiqueta}>Hacienda
+                  <input className="form-control" list="ag-haciendas" value={f.hacienda} onChange={e => set('hacienda', e.target.value)} style={campo} />
+                  <datalist id="ag-haciendas">{opciones('hacienda').map(v => <option key={v} value={v} />)}</datalist>
+                </label>
+                <label style={{...etiqueta, gridColumn: '1 / -1'}}>Motivo
+                  <input className="form-control" maxLength={300} placeholder="Ej. el operador no registró el almuerzo" value={f.motivo} onChange={e => set('motivo', e.target.value)} style={campo} />
+                </label>
+              </div>
+              <div style={{display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', padding: '0.8rem 1.2rem', borderTop: '1px solid var(--color-border)'}}>
+                <button onClick={() => setFormAgregar(null)} disabled={guardandoAgregar}
+                  style={{background: 'var(--color-bg-light)', border: '1px solid var(--color-border)', borderRadius: '6px', padding: '0.4rem 1rem', cursor: 'pointer', color: 'var(--color-text-primary)'}}>Cancelar</button>
+                <button onClick={guardarAgregar} disabled={guardandoAgregar}
+                  style={{background: '#28a745', color: 'white', border: 'none', borderRadius: '6px', padding: '0.4rem 1rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem'}}>
+                  <i className={`bx ${guardandoAgregar ? 'bx-loader-alt bx-spin' : 'bx-save'}`}></i> Agregar
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {showFeriados && (
         <div style={{position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'}}

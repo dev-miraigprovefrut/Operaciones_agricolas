@@ -622,6 +622,81 @@ def revisar_lote(body: RevisionLoteIn, db: Session = Depends(get_db),
             "errores": errores}
 
 
+# ------------------------------------- agregar / eliminar desde el reporte
+# Quien revisa las horas puede AGREGAR una actividad que el tractorista no
+# registro y ELIMINAR una mal registrada, mientras NO este revisada. Queda en
+# registro_revision quien lo hizo (AGREGADO / ELIMINADO).
+class RegistroManualIn(BaseModel):
+    usuario: str = Field(min_length=1, max_length=150)
+    actividad: str = Field(min_length=1, max_length=250)
+    subactividad: Optional[str] = Field(None, max_length=250)
+    tipo: Optional[str] = Field(None, max_length=50)
+    tractor: Optional[str] = Field(None, max_length=150)
+    lote: Optional[str] = Field(None, max_length=100)
+    hacienda: Optional[str] = Field(None, max_length=150)
+    inicio: datetime          # hora local (Ecuador), como se guarda
+    fin: datetime
+    motivo: Optional[str] = Field(None, max_length=300)
+
+
+@router.post("/registros/manual", response_model=RegistroOut)
+def agregar_registro_manual(body: RegistroManualIn, db: Session = Depends(get_db),
+                            user: Usuario = Depends(requiere("revisar_actividades"))):
+    inicio = body.inicio.replace(tzinfo=None, microsecond=0)
+    fin = body.fin.replace(tzinfo=None, microsecond=0)
+    if fin <= inicio:
+        raise HTTPException(400, "La hora de fin debe ser posterior a la de inicio")
+    if fin - inicio > timedelta(hours=48):
+        raise HTTPException(400, "Una actividad no puede durar más de 48 horas")
+    if fin > ahora_ecuador().replace(tzinfo=None) + timedelta(minutes=5):
+        raise HTTPException(400, "No se pueden agregar actividades en el futuro")
+    marca = {"manual": True, "por": user.username}
+    historial = [{"accion": "inicio", "fecha": inicio.isoformat(), "ubicacion": "Agregada en el reporte", **marca},
+                 {"accion": "finalizado", "fecha": fin.isoformat(), "ubicacion": "Agregada en el reporte", **marca}]
+    tiempo_paro, tiempo_real = _calcular_tiempos(historial)
+    act = db.scalar(select(Actividad).where(Actividad.actividad == body.actividad))
+    # mismo tractorista que sus otros registros (usuario = nombre del operador)
+    previo = db.scalar(select(Registro).where(Registro.usuario == body.usuario, Registro.id_tractorista.is_not(None))
+                       .order_by(Registro.fecha_creacion.desc()))
+    r = Registro(
+        fecha_creacion=inicio, tiempo_inicio=inicio, fecha_fin=fin, fecha_historial=historial,
+        actividad=body.actividad, subactividad=body.subactividad, tipo=body.tipo or (act.tipo if act else None),
+        tractor=body.tractor, lote=body.lote, hacienda=body.hacienda, usuario=body.usuario,
+        ubicacion="Agregada en el reporte", id_actividad=act.id if act else None,
+        id_tractorista=previo.id_tractorista if previo else None,
+        estado="Finalizado", tiempo_paro=tiempo_paro, tiempo_real=tiempo_real)
+    db.add(r)
+    db.flush()
+    db.add(RegistroRevision(id_registro=r.id, accion="AGREGADO", usuario=user.username, usuario_nombre=user.nombre,
+                            cambios={"inicio": inicio.isoformat(), "fin": fin.isoformat(), "motivo": body.motivo},
+                            fecha=ahora_ecuador()))
+    db.commit()
+    db.refresh(r)
+    return r
+
+
+class EliminarIn(BaseModel):
+    motivo: Optional[str] = Field(None, max_length=300)
+
+
+@router.post("/registros/{registro_id}/eliminar")
+def eliminar_desde_reporte(registro_id: int, body: EliminarIn, db: Session = Depends(get_db),
+                           user: Usuario = Depends(requiere("revisar_actividades"))):
+    r = db.query(Registro).filter(Registro.id == registro_id).with_for_update().first()
+    if not r or r.estado == "Eliminado":
+        raise HTTPException(404, "Registro no encontrado")
+    _no_revisado(r)
+    if r.estado == "Ejecutándose":
+        raise HTTPException(400, "La actividad está en curso: el tractorista debe finalizarla antes de eliminarla")
+    db.add(RegistroRevision(id_registro=r.id, accion="ELIMINADO", usuario=user.username, usuario_nombre=user.nombre,
+                            cambios={"estado": [r.estado, "Eliminado"], "actividad": r.actividad,
+                                     "subactividad": r.subactividad, "motivo": body.motivo},
+                            fecha=ahora_ecuador()))
+    r.estado = "Eliminado"           # borrado logico
+    db.commit()
+    return {"id": r.id, "message": "Actividad eliminada"}
+
+
 @router.get("/registros/{registro_id}/revisiones")
 def historial_revision(registro_id: int, db: Session = Depends(get_db),
                        _: Usuario = Depends(requiere("revisar_actividades", "reportes_actividades"))):

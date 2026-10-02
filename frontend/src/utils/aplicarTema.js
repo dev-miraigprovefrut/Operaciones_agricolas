@@ -155,12 +155,23 @@ export function variablesTema(empresa, dark = false) {
  * las variables desde ahí, y un estilo en línea le gana a cualquier clase de
  * tema que traiga el CSS.
  */
+// Variables escritas en el <html> por la ultima llamada
+let aplicadas = new Set()
+
 export function aplicarTema(empresa, dark = false) {
   const root = document.documentElement
   root.classList.toggle('dark', dark)
 
   const vars = variablesTema(empresa, dark)
+  const nuevas = new Set()
   for (const [cssVar, valor] of Object.entries(vars)) {
-    if (valor) root.style.setProperty(cssVar, valor)
+    if (valor) { root.style.setProperty(cssVar, valor); nuevas.add(cssVar) }
   }
+  // Al cambiar de oscuro a claro se quitan las que solo pone el oscuro
+  // (superficies, bordes...); si no, quedaban los colores oscuros en modo
+  // claro hasta recargar la pagina.
+  for (const cssVar of aplicadas) {
+    if (!nuevas.has(cssVar)) root.style.removeProperty(cssVar)
+  }
+  aplicadas = nuevas
 }
