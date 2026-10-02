@@ -2,7 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
-import { API_URL, cargarSesion, renovarSesion, esTractorista, cerrarPestana, HUB_LOGIN_URL, HUB_URL } from './services/sesion.js'
+import { API_URL, cargarSesion, cerrarSesion, limpiarDatosSesion, renovarSesion, esTractorista, cerrarPestana, HUB_LOGIN_URL, HUB_URL } from './services/sesion.js'
 import { huboActividad, alVolverActividad } from './services/actividad.js'
 
 // Enlaces viejos del HUB traen #token=... en la URL: ya no se usa (la sesion
@@ -55,6 +55,31 @@ function renderizar() {
     const r = await fetch(`${API_URL}/api/auth/me`)
     if (r.status === 401 && !(await renovarSesion())) sesionExpirada()
   })
+  // La APLICACION se cierra tras 4 h sin actividad en ella (aparte de la
+  // sesion de MirAI de 10 h): usuario del HUB -> se cierra la pestaña (el HUB
+  // sigue); tractorista -> se cierra su sesion y vuelve al login de PIN.
+  const revisarInactividad = () => {
+    if (window.location.pathname.startsWith('/login-tractorista')) return
+    if (!huboActividad(CIERRE_POR_INACTIVIDAD_MS)) cerrarPorInactividad()
+  }
+  setInterval(revisarInactividad, 60 * 1000)
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') revisarInactividad() })
+}
+
+const CIERRE_POR_INACTIVIDAD_MS = 4 * 60 * 60 * 1000
+let cerrandoPorInactividad = false
+async function cerrarPorInactividad() {
+  if (cerrandoPorInactividad) return
+  cerrandoPorInactividad = true
+  if (esTractorista() || esDominioTractoristas) {
+    await cerrarSesion()   // borra la cookie del tractorista (conserva usuario/cedula guardados)
+    window.location.href = '/login-tractorista'
+    return
+  }
+  limpiarDatosSesion()
+  pantalla({ icono: 'bx-time-five', color: '#ffb74d', titulo: 'Sesión cerrada por inactividad',
+    texto: 'Pasaron 4 horas sin actividad en Operaciones Agrícolas. Cerrando...', botones: [] })
+  cerrarPestana(HUB_URL)
 }
 
 async function iniciar() {
