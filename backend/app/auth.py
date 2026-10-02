@@ -27,6 +27,7 @@ PESTANAS = [
     "catalogos_actividades", "catalogos_camiones", "catalogos_tractoristas", "catalogos_supervisores",
     "reportes_actividades", "reportes_cosecha", "reportes_seguridad",
     "revisar_actividades",   # revisar/aprobar las horas de los tractoristas
+    "bitacora_dron",         # bitacora de actividades de drones (usuarios del HUB)
 ]
 PESTANAS_TRACTORISTA = ["registrar_actividades"]
 TIPO_TRACTORISTA = "tractorista"
@@ -195,14 +196,14 @@ def sesion_o_kiosko(*otras_pestanas: str):
     mientras KIOSKO_SIN_SESION este activo, una llamada SIN credenciales entra
     como 'kiosko' (solo registrar actividades), igual que antes. Si trae
     credenciales se validan normalmente y se exige registrar_actividades,
-    reportes_actividades o alguna de `otras_pestanas`."""
+    bitacora_dron, reportes_actividades o alguna de `otras_pestanas`."""
     def _dep(request: Request, db: Session = Depends(get_db)) -> Usuario:
         if not _hay_credencial(request):
             if settings.KIOSKO_SIN_SESION:
                 return KIOSKO
             raise HTTPException(401, "Sesión no iniciada")
         user = get_current_user(request, db)
-        if not user.puede(*PESTANAS_TRACTORISTA, "reportes_actividades", *otras_pestanas):
+        if not user.puede(*PESTANAS_TRACTORISTA, "bitacora_dron", "reportes_actividades", *otras_pestanas):
             raise HTTPException(403, "No autorizado")
         return user
     return _dep

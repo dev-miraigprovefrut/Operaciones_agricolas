@@ -317,3 +317,12 @@ CREATE TABLE IF NOT EXISTS parametro (
     fecha_actualizacion  TIMESTAMP    NOT NULL DEFAULT now(),
     CONSTRAINT uq_parametro_clave UNIQUE (tenant_id, numero_empresa, clave)
 );
+
+-- ------------------------------------------------- bitacora dron
+-- Los registros son de Tractores (Bitacora Tractor) o de Drones (Bitacora Dron);
+-- las actividades del catalogo ya tienen su columna `equipo`.
+ALTER TABLE registro ADD COLUMN IF NOT EXISTS equipo VARCHAR(20) NOT NULL DEFAULT 'Tractores';
+DO $$ BEGIN
+    ALTER TABLE registro ADD CONSTRAINT ck_registro_equipo CHECK (equipo IN ('Tractores', 'Drones'));
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+CREATE INDEX IF NOT EXISTS ix_registro_equipo ON registro (equipo);

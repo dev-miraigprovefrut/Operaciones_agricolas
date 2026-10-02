@@ -40,10 +40,20 @@ def _actividad(a: Actividad) -> dict:
             "equipo": a.equipo, "tipo": a.tipo, "cantidad": a.cantidad or 0}
 
 
+EQUIPOS = {"Tractores", "Drones"}
+
+
 @router.get("/actividades")
-def listar_actividades(db: Session = Depends(get_db), _: Usuario = Depends(sesion_o_kiosko("catalogos_actividades"))):
-    return [_actividad(a) for a in db.scalars(select(Actividad).where(Actividad.estado == "ACTIVO")
-                                               .order_by(Actividad.id))]
+def listar_actividades(equipo: Optional[str] = None, db: Session = Depends(get_db),
+                       user: Usuario = Depends(sesion_o_kiosko("catalogos_actividades", "bitacora_dron"))):
+    # Los kioskos de los tractores (Raspberry) no filtran por equipo: solo ven
+    # las de Tractores, para que no les aparezcan las actividades de drones.
+    if equipo is None and user.tipo == "kiosko":
+        equipo = "Tractores"
+    q = select(Actividad).where(Actividad.estado == "ACTIVO")
+    if equipo:
+        q = q.where(Actividad.equipo == equipo)
+    return [_actividad(a) for a in db.scalars(q.order_by(Actividad.id))]
 
 
 @router.get("/actividades/{actividad_id}")
@@ -57,6 +67,8 @@ def ver_actividad(actividad_id: int, db: Session = Depends(get_db), _: Usuario =
 @router.post("/actividades")
 def crear_actividad(data: ActividadIn, db: Session = Depends(get_db),
                     _: Usuario = Depends(requiere("catalogos_actividades"))):
+    if data.equipo not in EQUIPOS:
+        raise HTTPException(400, f"Equipo inválido: {data.equipo}")
     # Siguiente numero de CODIGO (no de id: el generador viejo repitio codigos)
     ultimo = db.scalar(select(func.max(cast(func.substring(Actividad.codigo_act, r"(\d+)$"), Integer)))
                        .where(Actividad.codigo_act.op("~")(r"^ACT-\d+$"))) or 0
@@ -75,6 +87,8 @@ def editar_actividad(actividad_id: int, data: ActividadIn, db: Session = Depends
     a = db.get(Actividad, actividad_id)
     if not a:
         raise HTTPException(404, "Actividad no encontrada")
+    if data.equipo not in EQUIPOS:
+        raise HTTPException(400, f"Equipo inválido: {data.equipo}")
     a.actividad, a.subactividades = data.actividad.upper(), data.subactividades
     a.equipo, a.tipo, a.cantidad = data.equipo, data.tipo, len(data.subactividades)
     db.commit()

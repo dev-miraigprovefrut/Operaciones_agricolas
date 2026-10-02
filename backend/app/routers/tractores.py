@@ -306,6 +306,7 @@ class RegistroIn(BaseModel):
     ubicacion: Optional[str] = None
     id_check: Optional[int] = None
     estado: str = "Pendiente"
+    equipo: str = "Tractores"          # Tractores | Drones (Bitacora Tractor / Bitacora Dron)
 
 
 class RegistroUpdate(BaseModel):
@@ -347,6 +348,7 @@ class RegistroOut(BaseModel):
     tiempo_paro: float = 0.0
     tiempo_real: float = 0.0
     estado: str
+    equipo: str = "Tractores"
     revision_estado: str = "NO_REVISADO"
     revisado_por: Optional[str] = None
     revisado_por_nombre: Optional[str] = None
@@ -365,6 +367,7 @@ def _no_revisado(r: Registro) -> None:
 
 
 ESTADOS_REGISTRO = {"Pendiente", "Ejecutándose", "Pausado", "Finalizado", "Eliminado"}
+EQUIPOS = {"Tractores", "Drones"}
 
 
 @router.get("/registros", response_model=List[RegistroOut])
@@ -387,9 +390,12 @@ def ver_registro(registro_id: int, db: Session = Depends(get_db), _: Usuario = D
 def crear_registro(registro: RegistroIn, db: Session = Depends(get_db), user: Usuario = Depends(_kiosko)):
     if registro.estado not in ESTADOS_REGISTRO:
         raise HTTPException(400, f"Estado inválido: {registro.estado}")
+    if registro.equipo not in EQUIPOS:
+        raise HTTPException(400, f"Equipo inválido: {registro.equipo}")
     # Evitar duplicados por reintentos de la cola offline / doble clic.
     if registro.estado == "Ejecutándose" and registro.usuario:
         existente = db.scalar(select(Registro).where(Registro.usuario == registro.usuario,
+                                                     Registro.equipo == registro.equipo,
                                                      Registro.estado == "Ejecutándose")
                               .order_by(Registro.fecha_creacion.desc()))
         if existente:
@@ -397,7 +403,7 @@ def crear_registro(registro: RegistroIn, db: Session = Depends(get_db), user: Us
     if registro.estado == "Pendiente" and registro.usuario:
         hoy = ahora_ecuador().replace(hour=0, minute=0, second=0, microsecond=0)
         dup = db.scalar(select(Registro).where(
-            Registro.usuario == registro.usuario, Registro.tractor == registro.tractor,
+            Registro.usuario == registro.usuario, Registro.tractor == registro.tractor, Registro.equipo == registro.equipo,
             Registro.actividad == registro.actividad, Registro.subactividad == registro.subactividad,
             Registro.orden_cultivo == registro.orden_cultivo, Registro.apero == registro.apero,
             Registro.estado.in_(["Pendiente", "Ejecutándose", "Pausado"]), Registro.fecha_creacion >= hoy)
@@ -409,18 +415,19 @@ def crear_registro(registro: RegistroIn, db: Session = Depends(get_db), user: Us
     historial = ([{"accion": "inicio", "fecha": ahora.isoformat(), "ubicacion": registro.ubicacion}]
                  if registro.estado == "Ejecutándose" else [])
     id_check = registro.id_check
-    if not id_check and registro.tractor:
+    if not id_check and registro.tractor and registro.equipo == "Tractores":   # el checklist es de tractores
         activo = db.scalar(select(CheckList).where(CheckList.tractor == registro.tractor, CheckList.estado == "Activo"))
         if activo:
             id_check = activo.id
-    act = db.scalar(select(Actividad).where(Actividad.actividad == registro.actividad)) if registro.actividad else None
+    act = db.scalar(select(Actividad).where(Actividad.actividad == registro.actividad,
+                                            Actividad.equipo == registro.equipo)) if registro.actividad else None
     nuevo = Registro(
         fecha_creacion=ahora, tiempo_inicio=ahora if registro.estado == "Ejecutándose" else None,
         actividad=registro.actividad, subactividad=registro.subactividad, tractor=registro.tractor,
         apero=registro.apero, lote=registro.lote, hacienda=registro.hacienda, orden_cultivo=registro.orden_cultivo,
         tipo=registro.tipo, usuario=registro.usuario, ubicacion=registro.ubicacion, id_check=id_check,
         id_actividad=act.id if act else None, id_tractorista=user.id_tractorista,
-        estado=registro.estado, fecha_historial=historial, tiempo_paro=0.0, tiempo_real=0.0)
+        estado=registro.estado, equipo=registro.equipo, fecha_historial=historial, tiempo_paro=0.0, tiempo_real=0.0)
     db.add(nuevo)
     if act:
         act.cantidad = (act.cantidad or 0) + 1
@@ -637,11 +644,14 @@ class RegistroManualIn(BaseModel):
     inicio: datetime          # hora local (Ecuador), como se guarda
     fin: datetime
     motivo: Optional[str] = Field(None, max_length=300)
+    equipo: str = "Tractores"
 
 
 @router.post("/registros/manual", response_model=RegistroOut)
 def agregar_registro_manual(body: RegistroManualIn, db: Session = Depends(get_db),
                             user: Usuario = Depends(requiere("revisar_actividades"))):
+    if body.equipo not in EQUIPOS:
+        raise HTTPException(400, f"Equipo inválido: {body.equipo}")
     inicio = body.inicio.replace(tzinfo=None, microsecond=0)
     fin = body.fin.replace(tzinfo=None, microsecond=0)
     if fin <= inicio:
@@ -654,7 +664,7 @@ def agregar_registro_manual(body: RegistroManualIn, db: Session = Depends(get_db
     historial = [{"accion": "inicio", "fecha": inicio.isoformat(), "ubicacion": "Agregada en el reporte", **marca},
                  {"accion": "finalizado", "fecha": fin.isoformat(), "ubicacion": "Agregada en el reporte", **marca}]
     tiempo_paro, tiempo_real = _calcular_tiempos(historial)
-    act = db.scalar(select(Actividad).where(Actividad.actividad == body.actividad))
+    act = db.scalar(select(Actividad).where(Actividad.actividad == body.actividad, Actividad.equipo == body.equipo))
     # mismo tractorista que sus otros registros (usuario = nombre del operador)
     previo = db.scalar(select(Registro).where(Registro.usuario == body.usuario, Registro.id_tractorista.is_not(None))
                        .order_by(Registro.fecha_creacion.desc()))
@@ -664,7 +674,7 @@ def agregar_registro_manual(body: RegistroManualIn, db: Session = Depends(get_db
         tractor=body.tractor, lote=body.lote, hacienda=body.hacienda, usuario=body.usuario,
         ubicacion="Agregada en el reporte", id_actividad=act.id if act else None,
         id_tractorista=previo.id_tractorista if previo else None,
-        estado="Finalizado", tiempo_paro=tiempo_paro, tiempo_real=tiempo_real)
+        estado="Finalizado", equipo=body.equipo, tiempo_paro=tiempo_paro, tiempo_real=tiempo_real)
     db.add(r)
     db.flush()
     db.add(RegistroRevision(id_registro=r.id, accion="AGREGADO", usuario=user.username, usuario_nombre=user.nombre,
