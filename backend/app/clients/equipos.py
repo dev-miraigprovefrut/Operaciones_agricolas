@@ -2,12 +2,21 @@
 
 PROVISIONAL: queda igual que en el sistema anterior hasta que el catalogo del
 maestro de Activos este listo; entonces este cliente se reemplaza por su API.
+Las bombas de fumigacion ya salen del maestro de Activos y se suman a la
+lista de aperos.
 """
+import logging
+
 import boto3
+import httpx
 
 from ..config import settings
+from . import servicio
 
+logger = logging.getLogger(__name__)
 _dynamo = boto3.resource("dynamodb", **settings.aws_kwargs())
+_http = httpx.Client(timeout=settings.TIMEOUT_SERVICIOS)
+TIPOS_ACTIVOS_APERO = ("BOMBA DE FUMIGACION",)
 
 
 def _scan(tabla: str) -> list[dict]:
@@ -44,6 +53,43 @@ def aperos() -> list[dict]:
             "tipo_tractor": i.get("tipo_tractor", ""), "recuperada": i.get("recuperada", False),
             "nombre": i.get("descripcion_implemento", "") or f"{i.get('tipo_implemento', '')} - {i.get('numeracion', '')}",
         })
+    # Una bomba que ya esta en CatalogoAperos con la misma numeracion no se repite
+    ya = {_num(a["numeracion"]) for a in out if "BOMBA" in (a["tipo_implemento"] or "").upper()}
+    out.extend(b for b in _bombas_activos() if _num(b["numeracion"]) not in ya)
+    return out
+
+
+def _num(v) -> str:
+    return (str(v or "").strip().lstrip("0")) or "0"
+
+
+def _bombas_activos() -> list[dict]:
+    """Bombas de fumigacion del maestro de Activos, con la forma de un apero.
+    Si Activos no responde se sigue sin ellas (no se rompe la bitacora)."""
+    out = []
+    for tipo in TIPOS_ACTIVOS_APERO:
+        try:
+            r = _http.get(f"{settings.API_ACTIVOS_URL.rstrip('/')}/activos",
+                          params={"tipo_equipo": tipo, "numero_empresa": settings.NUMERO_EMPRESA, "limit": 500},
+                          headers={"Authorization": f"Bearer {servicio.token()}"})
+            r.raise_for_status()
+            filas = r.json()
+        except (httpx.HTTPError, ValueError) as e:
+            logger.warning("No se pudieron leer las bombas del maestro de Activos: %s", e)
+            continue
+        for a in filas:
+            if not a.get("activo", True):
+                continue
+            desc = (a.get("descripcion") or "").strip()
+            if "BOMBA" not in desc.upper():     # ej. "USO EXCLUSIVO GUAYTACAMA"
+                desc = f"{tipo} ({desc})" if desc else tipo
+            out.append({
+                "id": a.get("codigo", ""), "marca": a.get("marca") or "", "numeracion": a.get("numeracion") or "",
+                "tipo_implemento": desc, "descripcion_implemento": desc,
+                "actividad": a.get("actividad") or "", "cultivo": a.get("cultivo") or "",
+                "proyectos": [p.strip() for p in (a.get("proyecto") or "").split(",") if p.strip()],
+                "tipo_tractor": "", "recuperada": False, "nombre": desc,
+            })
     return out
 
 

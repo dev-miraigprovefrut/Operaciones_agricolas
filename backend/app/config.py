@@ -52,6 +52,7 @@ class Settings(BaseSettings):
     # Servicios del ecosistema (por API, nunca por su base)
     HUB_API_URL: str = "https://hubbk.miraigprovefrut.com/api"
     API_PERSONAS_URL: str = "https://personasbk.miraigprovefrut.com"
+    API_ACTIVOS_URL: str = "https://activosbk.miraigprovefrut.com"
     API_EMPRESAS_URL: str = "https://empresasbk.miraigprovefrut.com"
     NOTIFY_URL: str = "https://notify.miraigprovefrut.com"
     MANTENIMIENTO_API_URL: str = "https://manntgbk.miraigprovefrut.com"
