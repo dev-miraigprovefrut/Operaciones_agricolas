@@ -395,7 +395,8 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
 
       const [registrosRes, tractoresRes, aperosRes, actividadesRes, checksRes] = await Promise.all([
         fetchWithOffline(`${API_URL}/api/registros`, 'registros'),
-        esDron ? Promise.resolve({ data: [] }) : fetchWithOffline(`${API_URL}/api/tractores`, 'tractores'),
+        // Drones: catalogo del maestro de Activos (los de registros viejos se suman abajo)
+        esDron ? fetchWithOffline(`${API_URL}/api/drones`, 'drones') : fetchWithOffline(`${API_URL}/api/tractores`, 'tractores'),
         esDron ? Promise.resolve({ data: [] }) : fetchWithOffline(`${API_URL}/api/aperos`, 'aperos'),
         fetchWithOffline(`${API_URL}/api/actividades`, 'actividades'),
         esDron ? Promise.resolve({ data: [] }) : fetchWithOffline(`${API_URL}/api/checks`, 'checks')
@@ -403,8 +404,11 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
 
       // Solo los registros de este equipo (los viejos, sin `equipo`, son de tractores)
       const registrosData = (registrosRes.data || []).filter(r => (r.equipo || 'Tractores') === equipo)
-      if (esDron) setDronesUsados([...new Set(registrosData.map(r => r.tractor).filter(Boolean))].sort())
-      const tractoresData = tractoresRes.data
+      if (esDron) {
+        const catalogo = (Array.isArray(tractoresRes.data) ? tractoresRes.data : []).map(d => d.nombre)
+        setDronesUsados([...new Set([...catalogo, ...registrosData.map(r => r.tractor)].filter(Boolean))].sort())
+      }
+      const tractoresData = esDron ? [] : tractoresRes.data
       const aperosData = aperosRes.data
       const actividadesData = actividadesRes.data
       const checksData = checksRes.data

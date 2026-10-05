@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 _dynamo = boto3.resource("dynamodb", **settings.aws_kwargs())
 _http = httpx.Client(timeout=settings.TIMEOUT_SERVICIOS)
 TIPOS_ACTIVOS_APERO = ("BOMBA DE FUMIGACION",)
+TIPO_ACTIVO_DRON = "EQUIPOS DRON"
 
 
 def _scan(tabla: str) -> list[dict]:
@@ -63,23 +64,34 @@ def _num(v) -> str:
     return (str(v or "").strip().lstrip("0")) or "0"
 
 
+def _activos(tipo: str) -> list[dict]:
+    """Activos vigentes de un tipo (empresa del modulo) del maestro de Activos.
+    Si Activos no responde devuelve [] (no se rompe la bitacora)."""
+    try:
+        r = _http.get(f"{settings.API_ACTIVOS_URL.rstrip('/')}/activos",
+                      params={"tipo_equipo": tipo, "numero_empresa": settings.NUMERO_EMPRESA, "limit": 500},
+                      headers={"Authorization": f"Bearer {servicio.token()}"})
+        r.raise_for_status()
+        return [a for a in r.json() if a.get("activo", True)]
+    except (httpx.HTTPError, ValueError) as e:
+        logger.warning("No se pudo leer %s del maestro de Activos: %s", tipo, e)
+        return []
+
+
+def drones() -> list[dict]:
+    """Drones del maestro de Activos. 'nombre' es lo que se guarda en el
+    registro (campo tractor), ej. '080 - DRON'."""
+    return [{"id": a.get("codigo", ""), "numeracion": a.get("numeracion") or "",
+             "descripcion": a.get("descripcion") or "", "proyecto": a.get("proyecto") or "",
+             "nombre": f"{a.get('numeracion') or ''} - DRON".strip(" -")}
+            for a in _activos(TIPO_ACTIVO_DRON)]
+
+
 def _bombas_activos() -> list[dict]:
-    """Bombas de fumigacion del maestro de Activos, con la forma de un apero.
-    Si Activos no responde se sigue sin ellas (no se rompe la bitacora)."""
+    """Bombas de fumigacion del maestro de Activos, con la forma de un apero."""
     out = []
     for tipo in TIPOS_ACTIVOS_APERO:
-        try:
-            r = _http.get(f"{settings.API_ACTIVOS_URL.rstrip('/')}/activos",
-                          params={"tipo_equipo": tipo, "numero_empresa": settings.NUMERO_EMPRESA, "limit": 500},
-                          headers={"Authorization": f"Bearer {servicio.token()}"})
-            r.raise_for_status()
-            filas = r.json()
-        except (httpx.HTTPError, ValueError) as e:
-            logger.warning("No se pudieron leer las bombas del maestro de Activos: %s", e)
-            continue
-        for a in filas:
-            if not a.get("activo", True):
-                continue
+        for a in _activos(tipo):
             desc = (a.get("descripcion") or "").strip()
             if "BOMBA" not in desc.upper():     # ej. "USO EXCLUSIVO GUAYTACAMA"
                 desc = f"{tipo} ({desc})" if desc else tipo

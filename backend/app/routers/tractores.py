@@ -47,6 +47,12 @@ def listar_aperos(_: Usuario = Depends(_kiosko)):
         raise HTTPException(502, "No se pudo leer el catálogo de aperos") from e
 
 
+@router.get("/drones")
+def listar_drones(_: Usuario = Depends(_kiosko)):
+    """Drones del maestro de Activos (vacio si Activos no responde)."""
+    return equipos.drones()
+
+
 def _horas(mant: Session | None, tractor_id: str):
     if mant is None:
         return None
