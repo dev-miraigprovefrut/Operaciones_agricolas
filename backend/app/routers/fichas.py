@@ -6,11 +6,14 @@ Flujo en la bitacora (tractor o dron):
   2. Aplicacion: antes de Iniciar se registran temperatura y velocidad del
      viento (POST /{id}/iniciar). Una ficha la aplica UN solo equipo.
   3. Al Finalizar se completa numero de bombas y cantidades reales
-     (POST /{id}/finalizar): las horas salen de la actividad y todo se escribe
-     en agdocul (sin cambiar el estado: CN lo ponen en el ERP).
+     (POST /{id}/finalizar): las horas salen de la actividad. Queda guardado
+     aqui, POR SINCRONIZAR.
+  4. En Reportes > Fichas de aplicacion la oficina revisa (puede corregir) y
+     con un boton lo sincroniza con Jireh (POST /{id}/enviar o /enviar-lote):
+     se escribe en agdocul sin cambiar el estado (CN lo ponen en el ERP).
 """
 import logging
-from datetime import timedelta
+from datetime import date, time, timedelta
 from decimal import Decimal
 from typing import List, Optional
 
@@ -165,8 +168,8 @@ def finalizar(ficha_id: int, body: FinalizarIn, db: Session = Depends(get_db), u
     f = _ficha(db, ficha_id, bloquear=True)
     if f.estado_aplicacion == "PENDIENTE":
         raise HTTPException(400, "La aplicación de esta ficha no se ha iniciado")
-    if f.estado_aplicacion == "APLICADA" and f.envio_erp == "ENVIADO":
-        return _out(f)                                      # reintento: ya quedo
+    if f.estado_aplicacion == "APLICADA":
+        return _out(f)                                      # reintento de la cola offline: ya quedo
     # Horas: las de la actividad de la bitacora (inicio y fin reales)
     reg = db.get(Registro, body.id_registro or f.id_registro) if (body.id_registro or f.id_registro) else None
     if reg is None:
@@ -188,26 +191,84 @@ def finalizar(ficha_id: int, body: FinalizarIn, db: Session = Depends(get_db), u
             pr.cantidad_aplicada = Decimal(str(cant[pr.cod_docul]))
         elif pr.cantidad_aplicada is None:
             pr.cantidad_aplicada = pr.cantidad_salida or pr.cantidad
-    f.estado_aplicacion, f.envio_erp, f.envio_error = "APLICADA", "PENDIENTE", None
+    # Queda POR SINCRONIZAR: la oficina la revisa y la envia a Jireh con un boton
+    f.estado_aplicacion, f.envio_erp, f.envio_error = "APLICADA", None, None
     db.commit()
-    try:
-        sync.enviar_erp(db, f)
-    except Exception:  # noqa: BLE001  (queda en ERROR y el scheduler reintenta)
-        logger.exception("No se pudo escribir la ficha %s en Informix", f.id)
-        db.refresh(f)
     return _out(f)
 
 
-@router.post("/{ficha_id}/reenviar")
-def reenviar(ficha_id: int, db: Session = Depends(get_db), _: Usuario = Depends(_gestion)):
+class EditarIn(BaseModel):
+    fecha_aplicacion: Optional[date] = None
+    hora_inicio: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    hora_fin: Optional[str] = Field(None, pattern=r"^([01]\d|2[0-3]):[0-5]\d$")
+    temperatura: Optional[float] = Field(None, ge=-10, le=50)
+    velocidad_viento: Optional[float] = Field(None, ge=0, le=150)
+    num_bombas: Optional[float] = Field(None, ge=0, le=999)
+    aplicador: Optional[str] = Field(None, max_length=200)
+    productos: List[ProductoFin] = []
+
+
+@router.put("/{ficha_id}/aplicacion")
+def editar_aplicacion(ficha_id: int, body: EditarIn, db: Session = Depends(get_db), _: Usuario = Depends(_gestion)):
+    """Corrige los datos de una ficha aplicada antes de sincronizarla. Si ya se
+    habia enviado, queda otra vez POR SINCRONIZAR."""
+    f = _ficha(db, ficha_id, bloquear=True)
+    if f.estado_aplicacion != "APLICADA":
+        raise HTTPException(400, "Solo se editan fichas aplicadas")
+    if body.fecha_aplicacion:
+        f.fecha_aplicacion = body.fecha_aplicacion
+    if body.hora_inicio:
+        f.hora_inicio = time.fromisoformat(body.hora_inicio)
+    if body.hora_fin:
+        f.hora_fin = time.fromisoformat(body.hora_fin)
+    if f.hora_inicio and f.hora_fin and f.hora_fin <= f.hora_inicio:
+        raise HTTPException(400, "La hora de fin debe ser posterior a la de inicio")
+    for campo in ("temperatura", "velocidad_viento", "num_bombas"):
+        v = getattr(body, campo)
+        if v is not None:
+            setattr(f, campo, Decimal(str(v)))
+    if body.aplicador:
+        f.aplicador = body.aplicador.strip()
+    cant = {p.cod_docul: p.cantidad_aplicada for p in body.productos}
+    for pr in f.productos:
+        if pr.cod_docul in cant:
+            pr.cantidad_aplicada = Decimal(str(cant[pr.cod_docul]))
+    f.envio_erp, f.envio_error = None, None
+    db.commit()
+    return _out(f)
+
+
+@router.post("/{ficha_id}/enviar")
+def enviar(ficha_id: int, db: Session = Depends(get_db), _: Usuario = Depends(_gestion)):
+    """Sincroniza con Jireh: escribe la aplicacion en agdocul (sin tocar el estado)."""
     f = _ficha(db, ficha_id)
     if f.estado_aplicacion != "APLICADA":
         raise HTTPException(400, "La ficha no está aplicada")
     try:
         sync.enviar_erp(db, f)
     except Exception as e:  # noqa: BLE001
-        raise HTTPException(502, f"No se pudo escribir en Informix: {str(e)[:200]}") from e
+        raise HTTPException(502, f"No se pudo escribir en Jireh: {str(e)[:200]}") from e
     return _out(f)
+
+
+class EnviarLoteIn(BaseModel):
+    ids: List[int] = []
+
+
+@router.post("/enviar-lote")
+def enviar_lote(body: EnviarLoteIn, db: Session = Depends(get_db), _: Usuario = Depends(_gestion)):
+    """Sincroniza con Jireh varias fichas aplicadas (las que no se han enviado)."""
+    if not body.ids:
+        raise HTTPException(400, "No hay fichas para sincronizar")
+    enviadas, errores = [], []
+    for f in db.scalars(_query().where(FichaAplicacion.id.in_(body.ids), FichaAplicacion.estado_aplicacion == "APLICADA")):
+        try:
+            sync.enviar_erp(db, f)
+            enviadas.append(_out(f))
+        except Exception as e:  # noqa: BLE001
+            db.rollback()
+            errores.append({"id": f.id, "ocult": f.ocult, "detalle": str(e)[:200]})
+    return {"enviadas": enviadas, "errores": errores}
 
 
 @router.post("/{ficha_id}/liberar")
@@ -237,5 +298,4 @@ def sincronizar(body: SincronizarIn, db: Session = Depends(get_db), _: Usuario =
     except Exception as e:  # noqa: BLE001
         db.rollback()
         raise HTTPException(502, "No se pudo leer Informix (¿VPN caída?)") from e
-    r["reenvio"] = sync.reenviar_pendientes(db)
     return r

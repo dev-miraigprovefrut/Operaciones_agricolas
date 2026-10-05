@@ -183,7 +183,7 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
     return true
   }
 
-  // Al finalizar la actividad: numero de bombas y cantidades reales -> se escribe en el ERP
+  // Al finalizar la actividad: numero de bombas y cantidades reales (la oficina la sincroniza con Jireh)
   const completarFicha = async (registro) => {
     let guardada = null
     try { guardada = JSON.parse(localStorage.getItem(claveFicha(registro.tractor)) || 'null') } catch { guardada = null }
@@ -200,10 +200,10 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
         <input id="fa-bombas" type="number" step="0.5" min="0" style="width:100%;padding:6px;border:1px solid #ccc;border-radius:4px;margin-bottom:0.8rem;">
         <div style="font-weight:600;margin-bottom:0.3rem;">Cantidad real aplicada</div>
         <table style="width:100%;border-collapse:collapse;">${filas}</table>
-        <p style="color:#888;font-size:0.75rem;margin-top:0.6rem;">Fecha y horas se toman de la actividad. Se envía al ERP (el estado lo cambian al revisar).</p>
+        <p style="color:#888;font-size:0.75rem;margin-top:0.6rem;">Fecha y horas se toman de la actividad. La oficina la revisa y la sincroniza con Jireh.</p>
       </div>`,
       allowOutsideClick: false, allowEscapeKey: false, showCancelButton: false,
-      confirmButtonText: 'Guardar y enviar', confirmButtonColor: '#7b1fa2',
+      confirmButtonText: 'Guardar', confirmButtonColor: '#7b1fa2',
       preConfirm: () => {
         const bombas = parseFloat(document.getElementById('fa-bombas').value)
         if (isNaN(bombas) || bombas < 0) { Swal.showValidationMessage('Ingrese el número de bombas'); return false }
@@ -217,10 +217,8 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
       body: JSON.stringify({ id_registro: registro.id || null, ...value })
     }, 'Completar ficha de aplicación')
     localStorage.removeItem(claveFicha(registro.tractor))
-    if (!res) { await exito('Ficha guardada sin conexión — se enviará al ERP al sincronizar'); return }
-    const data = await res.json().catch(() => ({}))
-    if (data.envio_erp === 'ENVIADO') await exito('Ficha de aplicación enviada al ERP')
-    else advertencia({ titulo: 'Ficha guardada', texto: 'Se guardó la aplicación; el envío al ERP se reintentará automáticamente.' })
+    if (!res) { await exito('Ficha guardada sin conexión — se registrará al sincronizar'); return }
+    await exito('Ficha de aplicación guardada')
   }
 
   const handleContinuar = () => {

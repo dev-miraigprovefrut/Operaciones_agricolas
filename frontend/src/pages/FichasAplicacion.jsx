@@ -1,6 +1,7 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Swal from 'sweetalert2'
 import { EstadoErpBadge, estadoAplicacionTexto } from '../components/FichaAplicacion'
+import DrawerFichaAplicacion, { estadoEnvio } from '../components/DrawerFichaAplicacion'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8007'
 
@@ -11,11 +12,6 @@ const semanaIso = (d = new Date()) => {
 }
 const num = (v, dec = 2) => (v === null || v === undefined || v === '') ? '' : Number(v).toLocaleString('es-EC', { minimumFractionDigits: 2, maximumFractionDigits: dec })
 
-const ENVIO = {
-  ENVIADO: { t: 'Enviada al ERP', c: '#1b5e20' },
-  PENDIENTE: { t: 'Envío pendiente', c: '#8a5300' },
-  ERROR: { t: 'Error al enviar', c: '#b71c1c' },
-}
 
 /** HTML de la ficha como la imprimia el sistema viejo (con los datos de la aplicacion). */
 function htmlFicha(f) {
@@ -50,9 +46,10 @@ export default function FichasAplicacion() {
   const [fichas, setFichas] = useState([])
   const [cargando, setCargando] = useState(false)
   const [busqueda, setBusqueda] = useState('')
-  const [filtro, setFiltro] = useState('')       // '' | PENDIENTE | EN_CURSO | APLICADA | ERROR
-  const [abierta, setAbierta] = useState(null)
-  const [sincronizando, setSincronizando] = useState(false)
+  const [filtro, setFiltro] = useState('')       // '' | PENDIENTE | EN_CURSO | POR | ENVIADO | ERROR
+  const [abiertaId, setAbiertaId] = useState(null)
+  const [ocupado, setOcupado] = useState(false)
+  const [actualizando, setActualizando] = useState(false)
   const pedido = useRef(0)
 
   const cargar = async () => {
@@ -66,49 +63,95 @@ export default function FichasAplicacion() {
   }
   useEffect(() => { cargar() }, [anio, semana])  // eslint-disable-line react-hooks/exhaustive-deps
 
-  const sincronizar = async () => {
-    setSincronizando(true)
-    try {
-      const r = await fetch(`${API_URL}/api/fichas-aplicacion/sincronizar`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ anio, semana }) })
-      const d = await r.json().catch(() => ({}))
-      if (!r.ok) throw new Error(d.detail || 'No se pudo sincronizar')
-      Swal.fire({ icon: 'success', title: 'Fichas actualizadas', text: `${d.creadas} nuevas, ${d.actualizadas} actualizadas`, timer: 1600, showConfirmButton: false })
-      cargar()
-    } catch (e) { Swal.fire({ icon: 'error', title: 'Error', text: e.message }) } finally { setSincronizando(false) }
-  }
-
-  const accion = async (f, tipo) => {
-    const textos = { reenviar: ['¿Reenviar esta aplicación al ERP?', 'Enviada al ERP'], liberar: ['¿Liberar esta ficha?', 'Ficha liberada'] }
-    const conf = await Swal.fire({ title: textos[tipo][0], html: tipo === 'liberar' ? 'Se borra el inicio (temperatura, viento, equipo) para que otro equipo pueda aplicarla.' : '', icon: 'question', showCancelButton: true, confirmButtonText: 'Sí', cancelButtonText: 'Cancelar', confirmButtonColor: '#7b1fa2' })
-    if (!conf.isConfirmed) return
-    const r = await fetch(`${API_URL}/api/fichas-aplicacion/${f.id}/${tipo}`, { method: 'POST' })
+  const reemplazar = (d) => setFichas(prev => prev.map(x => x.id === d.id ? d : x))
+  const pedir = async (url, opciones = {}) => {
+    const r = await fetch(`${API_URL}${url}`, { headers: { 'Content-Type': 'application/json' }, ...opciones })
     const d = await r.json().catch(() => ({}))
-    if (!r.ok) { Swal.fire({ icon: 'error', title: 'Error', text: d.detail || 'No se pudo' }); return }
-    setFichas(prev => prev.map(x => x.id === d.id ? d : x))
-    Swal.fire({ icon: 'success', title: textos[tipo][1], timer: 1200, showConfirmButton: false })
+    if (!r.ok) throw new Error(typeof d.detail === 'string' ? d.detail : 'No se pudo completar')
+    return d
   }
 
+  // Leer de Jireh (copiar/actualizar las fichas de la semana)
+  const actualizarDesdeJireh = async () => {
+    setActualizando(true)
+    try {
+      const d = await pedir('/api/fichas-aplicacion/sincronizar', { method: 'POST', body: JSON.stringify({ anio, semana }) })
+      Swal.fire({ icon: 'success', title: 'Fichas actualizadas desde Jireh', text: `${d.creadas} nuevas, ${d.actualizadas} actualizadas`, timer: 1600, showConfirmButton: false })
+      cargar()
+    } catch (e) { Swal.fire({ icon: 'error', title: 'Error', text: e.message }) } finally { setActualizando(false) }
+  }
+
+  const guardar = async (f, datos) => {
+    setOcupado(true)
+    try {
+      reemplazar(await pedir(`/api/fichas-aplicacion/${f.id}/aplicacion`, { method: 'PUT', body: JSON.stringify(datos) }))
+      Swal.fire({ icon: 'success', title: 'Cambios guardados', timer: 1100, showConfirmButton: false })
+    } catch (e) { Swal.fire({ icon: 'error', title: 'Error', text: e.message }) } finally { setOcupado(false) }
+  }
+
+  // Escribir en Jireh (agdocul) la aplicacion de UNA ficha
+  const sincronizar = async (f, datosPendientes) => {
+    const conf = await Swal.fire({ title: '¿Sincronizar con Jireh?', html: `Orden <b>${f.ocult}</b> · lote ${f.lote}<br><small>Se escriben fecha, horas, temperatura, viento, bombas, método, aplicador y cantidades. El estado no cambia.</small>`,
+      icon: 'question', showCancelButton: true, confirmButtonText: 'Sí, sincronizar', cancelButtonText: 'Cancelar', confirmButtonColor: '#7b1fa2' })
+    if (!conf.isConfirmed) return
+    setOcupado(true)
+    try {
+      if (datosPendientes) reemplazar(await pedir(`/api/fichas-aplicacion/${f.id}/aplicacion`, { method: 'PUT', body: JSON.stringify(datosPendientes) }))
+      reemplazar(await pedir(`/api/fichas-aplicacion/${f.id}/enviar`, { method: 'POST' }))
+      Swal.fire({ icon: 'success', title: 'Sincronizada con Jireh', timer: 1300, showConfirmButton: false })
+    } catch (e) { Swal.fire({ icon: 'error', title: 'No se pudo sincronizar', text: e.message }); cargar() } finally { setOcupado(false) }
+  }
+
+  const porSincronizar = fichas.filter(f => f.estado_aplicacion === 'APLICADA' && f.envio_erp !== 'ENVIADO')
+  const sincronizarTodas = async () => {
+    const conf = await Swal.fire({ title: `¿Sincronizar ${porSincronizar.length} ${porSincronizar.length === 1 ? 'ficha' : 'fichas'} con Jireh?`, text: 'Se escriben las aplicaciones de la semana que aún no están en Jireh.',
+      icon: 'question', showCancelButton: true, confirmButtonText: 'Sí, sincronizar', cancelButtonText: 'Cancelar', confirmButtonColor: '#7b1fa2' })
+    if (!conf.isConfirmed) return
+    setOcupado(true)
+    try {
+      const d = await pedir('/api/fichas-aplicacion/enviar-lote', { method: 'POST', body: JSON.stringify({ ids: porSincronizar.map(f => f.id) }) })
+      d.enviadas.forEach(reemplazar)
+      if (d.errores.length) Swal.fire({ icon: 'warning', title: `${d.enviadas.length} sincronizadas, ${d.errores.length} con error`, html: d.errores.map(e => `<p style="text-align:left;font-size:0.85rem;"><b>Orden ${e.ocult}</b>: ${e.detalle}</p>`).join('') })
+      else Swal.fire({ icon: 'success', title: `${d.enviadas.length} sincronizadas con Jireh`, timer: 1400, showConfirmButton: false })
+      cargar()
+    } catch (e) { Swal.fire({ icon: 'error', title: 'Error', text: e.message }) } finally { setOcupado(false) }
+  }
+
+  const liberar = async (f) => {
+    const conf = await Swal.fire({ title: '¿Liberar esta ficha?', text: 'Se borra el inicio (temperatura, viento, equipo) para que otro equipo pueda aplicarla.', icon: 'question', showCancelButton: true, confirmButtonText: 'Sí, liberar', cancelButtonText: 'Cancelar', confirmButtonColor: '#dc3545' })
+    if (!conf.isConfirmed) return
+    setOcupado(true)
+    try { reemplazar(await pedir(`/api/fichas-aplicacion/${f.id}/liberar`, { method: 'POST' })) }
+    catch (e) { Swal.fire({ icon: 'error', title: 'Error', text: e.message }) } finally { setOcupado(false) }
+  }
+
+  const grupo = (f) => f.estado_aplicacion !== 'APLICADA' ? f.estado_aplicacion
+    : f.envio_erp === 'ENVIADO' ? 'ENVIADO' : f.envio_erp === 'ERROR' ? 'ERROR' : 'POR'
   const visibles = useMemo(() => fichas.filter(f => {
-    if (filtro === 'ERROR' ? f.envio_erp !== 'ERROR' : filtro && f.estado_aplicacion !== filtro) return false
+    if (filtro && grupo(f) !== filtro) return false
     if (!busqueda) return true
     const b = busqueda.toLowerCase()
     return [f.ocult, f.lote, f.hacienda, f.cultivo, f.tractor, f.aplicador].some(v => String(v || '').toLowerCase().includes(b))
-  }), [fichas, filtro, busqueda])
-
-  const cuenta = (est) => fichas.filter(f => est === 'ERROR' ? f.envio_erp === 'ERROR' : f.estado_aplicacion === est).length
+  }), [fichas, filtro, busqueda])  // eslint-disable-line react-hooks/exhaustive-deps
+  const cuenta = (g) => fichas.filter(f => grupo(f) === g).length
+  const abierta = fichas.find(f => f.id === abiertaId) || null
+  const cerrar = useCallback(() => setAbiertaId(null), [])
 
   return (
     <div>
       <div className="page-header">
         <div>
           <h1><i className='bx bx-spray-can'></i> Fichas de aplicación</h1>
-          <p className="page-subtitle">Fichas fitosanitarias del ERP (herbicida y fitosanitaria) y su aplicación en campo</p>
+          <p className="page-subtitle">Fichas fitosanitarias de Jireh (herbicida y fitosanitaria) y su aplicación en campo</p>
         </div>
         <div className="page-actions" style={{display: 'flex', gap: '0.5rem', flexWrap: 'wrap'}}>
-          <button className="btn btn-secondary" onClick={sincronizar} disabled={sincronizando}>
-            <i className={`bx ${sincronizando ? 'bx-loader-alt bx-spin' : 'bx-refresh'}`}></i> Sincronizar con el ERP
+          <button className="btn btn-secondary" onClick={actualizarDesdeJireh} disabled={actualizando} title="Copiar las fichas de la semana desde Jireh">
+            <i className={`bx ${actualizando ? 'bx-loader-alt bx-spin' : 'bx-download'}`}></i> Actualizar desde Jireh
           </button>
-          <button className="btn btn-primary" onClick={() => imprimir(visibles, `Aplicaciones fitosanitarias · semana ${semana}-${anio}`)} disabled={!visibles.length}>
+          <button className="btn btn-primary" onClick={sincronizarTodas} disabled={!porSincronizar.length || ocupado} title="Escribir en Jireh las aplicaciones aún no sincronizadas">
+            <i className='bx bx-sync'></i> Sincronizar aplicadas ({porSincronizar.length})
+          </button>
+          <button className="btn btn-secondary" onClick={() => imprimir(visibles, `Aplicaciones fitosanitarias · semana ${semana}-${anio}`)} disabled={!visibles.length}>
             <i className='bx bx-printer'></i> Imprimir
           </button>
         </div>
@@ -124,22 +167,24 @@ export default function FichasAplicacion() {
       </div>
 
       <div style={{display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.8rem'}}>
-        {[['', `Todas (${fichas.length})`], ['PENDIENTE', `Por aplicar (${cuenta('PENDIENTE')})`], ['EN_CURSO', `En aplicación (${cuenta('EN_CURSO')})`], ['APLICADA', `Aplicadas (${cuenta('APLICADA')})`], ['ERROR', `Error al enviar (${cuenta('ERROR')})`]].map(([k, t]) => (
+        {[['', `Todas (${fichas.length})`], ['PENDIENTE', `Por aplicar (${cuenta('PENDIENTE')})`], ['EN_CURSO', `En aplicación (${cuenta('EN_CURSO')})`],
+          ['POR', `Por sincronizar (${cuenta('POR')})`], ['ENVIADO', `Sincronizadas (${cuenta('ENVIADO')})`], ['ERROR', `Con error (${cuenta('ERROR')})`]].map(([k, t]) => (
           <button key={k} onClick={() => setFiltro(k)} style={{border: 'none', borderRadius: '6px', padding: '0.35rem 0.8rem', cursor: 'pointer', fontSize: '0.8rem',
             background: filtro === k ? 'var(--color-primary)' : 'var(--color-bg-light)', color: filtro === k ? 'var(--color-on-primary)' : 'var(--color-text-secondary)'}}>{t}</button>
         ))}
       </div>
 
       {cargando ? <p style={{textAlign: 'center', padding: '2rem', color: 'var(--color-text-secondary)'}}><i className='bx bx-loader-alt bx-spin'></i> Cargando…</p>
-        : !visibles.length ? <p style={{textAlign: 'center', padding: '2rem', color: 'var(--color-text-secondary)'}}>No hay fichas para esta semana. Use «Sincronizar con el ERP» si aún no se han copiado.</p>
+        : !visibles.length ? <p style={{textAlign: 'center', padding: '2rem', color: 'var(--color-text-secondary)'}}>No hay fichas para esta semana. Use «Actualizar desde Jireh» si aún no se han copiado.</p>
         : (
         <div className="tabla-container">
           <table className="tabla" style={{fontSize: '0.8rem'}}>
-            <thead><tr><th>Orden</th><th>Lote</th><th>Hacienda</th><th>Cultivo</th><th>Actividad</th><th>Estado ERP</th><th>Aplicación</th><th>Envío</th><th></th></tr></thead>
+            <thead><tr><th>Orden</th><th>Lote</th><th>Hacienda</th><th>Cultivo</th><th>Actividad</th><th>Estado Jireh</th><th>Aplicación</th><th>Sincronización</th></tr></thead>
             <tbody>
-              {visibles.map(f => (
-                <Fragment key={f.id}>
-                  <tr className="clickeable" onClick={() => setAbierta(abierta === f.id ? null : f.id)}>
+              {visibles.map(f => {
+                const env = estadoEnvio(f)
+                return (
+                  <tr key={f.id} className={`clickeable ${abiertaId === f.id ? 'selected' : ''}`} onClick={() => setAbiertaId(f.id)}>
                     <td><strong>{f.ocult}</strong></td>
                     <td>{f.lote}</td>
                     <td>{f.hacienda}</td>
@@ -147,45 +192,18 @@ export default function FichasAplicacion() {
                     <td>{f.cod_acamp === 83 ? 'Herbicida' : 'Fitosanitaria'} ({f.productos.length})</td>
                     <td><EstadoErpBadge estado={f.estado_erp} /></td>
                     <td style={{textTransform: 'none'}}>{estadoAplicacionTexto(f)}</td>
-                    <td style={{color: ENVIO[f.envio_erp]?.c, fontWeight: 600, textTransform: 'none'}} title={f.envio_error || ''}>{ENVIO[f.envio_erp]?.t || '-'}</td>
-                    <td style={{whiteSpace: 'nowrap'}} onClick={e => e.stopPropagation()}>
-                      <button title="Imprimir ficha" onClick={() => imprimir([f], `Ficha de aplicación · orden ${f.ocult}`)} style={{background: 'transparent', border: 'none', color: '#7b1fa2', cursor: 'pointer', fontSize: '1.1rem'}}><i className='bx bx-printer'></i></button>
-                      {f.estado_aplicacion === 'APLICADA' && f.envio_erp !== 'ENVIADO' && (
-                        <button title="Reenviar al ERP" onClick={() => accion(f, 'reenviar')} style={{background: 'transparent', border: 'none', color: '#1565c0', cursor: 'pointer', fontSize: '1.1rem'}}><i className='bx bx-upload'></i></button>
-                      )}
-                      {f.estado_aplicacion === 'EN_CURSO' && (
-                        <button title="Liberar ficha (inicio por error)" onClick={() => accion(f, 'liberar')} style={{background: 'transparent', border: 'none', color: '#dc3545', cursor: 'pointer', fontSize: '1.1rem'}}><i className='bx bx-reset'></i></button>
-                      )}
-                    </td>
+                    <td style={{color: env?.c, fontWeight: 600, textTransform: 'none', whiteSpace: 'nowrap'}}>{env ? <><i className={`bx ${env.i}`}></i> {env.t}</> : '-'}</td>
                   </tr>
-                  {abierta === f.id && (
-                    <tr><td colSpan={9} style={{background: 'var(--color-bg-light)', textTransform: 'none'}}>
-                      <div style={{display: 'flex', flexWrap: 'wrap', gap: '0.3rem 1.2rem', marginBottom: '0.4rem'}}>
-                        <span>Semana {f.semana}-{f.anio} · Edad {f.edad_sem}</span>
-                        {f.estado_aplicacion !== 'PENDIENTE' && <>
-                          <span>Temperatura: <b>{f.temperatura ?? '-'}</b></span><span>Viento: <b>{f.velocidad_viento ?? '-'}</b></span>
-                          <span># Bombas: <b>{f.num_bombas ?? '-'}</b></span><span>Método: <b>{f.metodo}</b></span>
-                          <span>Equipo: <b>{f.tractor}{f.bomba ? ' · ' + f.bomba : ''}</b></span><span>Aplicador: <b>{f.aplicador}</b></span>
-                        </>}
-                        {f.envio_error && <span style={{color: '#b71c1c'}}>Error: {f.envio_error}</span>}
-                      </div>
-                      <table style={{width: '100%', fontSize: '0.75rem', borderCollapse: 'collapse'}}>
-                        <thead><tr style={{textAlign: 'left'}}><th>Producto</th><th>Descripción</th><th>Clasificación</th><th style={{textAlign: 'right'}}>Dosis/Ha</th><th style={{textAlign: 'right'}}>Cantidad</th><th style={{textAlign: 'right'}}>Despachada</th><th style={{textAlign: 'right'}}>Aplicada</th><th>Carencia</th><th>Estado</th></tr></thead>
-                        <tbody>{f.productos.map(p => (
-                          <tr key={p.cod_docul}><td>{p.cod_prod}</td><td>{p.descripcion}</td><td>{p.clasificacion}</td>
-                            <td style={{textAlign: 'right'}}>{num(p.dosis_ha)} {p.unidad}</td><td style={{textAlign: 'right'}}>{num(p.cantidad)}</td>
-                            <td style={{textAlign: 'right'}}>{num(p.cantidad_salida)}</td><td style={{textAlign: 'right'}}>{num(p.cantidad_aplicada)}</td>
-                            <td>{p.carencia}</td><td><EstadoErpBadge estado={p.estado_erp} /></td></tr>
-                        ))}</tbody>
-                      </table>
-                    </td></tr>
-                  )}
-                </Fragment>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         </div>
       )}
+
+      <DrawerFichaAplicacion ficha={abierta} open={!!abierta} onClose={cerrar} ocupado={ocupado}
+        onGuardar={guardar} onSincronizar={sincronizar} onLiberar={liberar}
+        onImprimir={(f) => imprimir([f], `Ficha de aplicación · orden ${f.ocult}`)} />
     </div>
   )
 }

@@ -6,9 +6,10 @@ cualquier estado menos AN (anulado). El estado (PE pendiente de revision, AU
 autorizada, CN confirmada) se muestra al operador. Se refrescan durante la
 semana porque en el ERP se van actualizando.
 
-ESCRITURA: al terminar la aplicacion se llenan en cada fila de agdocul fecha,
-horas, temperatura, velocidad del viento, numero de bombas, metodo, aplicador y
-cantidad real. El estado NO se toca: lo pasan a CN en el ERP al revisar.
+ESCRITURA (manual, desde Reportes > Fichas de aplicacion): se llenan en cada
+fila de agdocul fecha, horas, temperatura, velocidad del viento, numero de
+bombas, metodo, aplicador y cantidad real. El estado NO se toca: lo pasan a CN
+en el ERP al revisar.
 """
 import logging
 import re
@@ -213,13 +214,12 @@ def reenviar_pendientes(db: Session) -> dict:
 
 
 def main() -> dict:
-    """Para el scheduler: sincroniza las semanas vigentes y reintenta envios."""
+    """Para el scheduler: copia las fichas de las semanas vigentes (solo lectura;
+    el envio a Jireh lo hace la oficina con un boton)."""
     from ..database import SessionLocal
     db = SessionLocal()
     try:
-        r = sincronizar(db)
-        r["reenvio"] = reenviar_pendientes(db)
-        return r
+        return sincronizar(db)
     finally:
         db.close()
 

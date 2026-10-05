@@ -57,7 +57,7 @@ for r in (sesion, admin, catalogos, tractores, cosecha, lotes, empresas, fichas)
 def iniciar_sync_informix():
     """Sync con Informix dentro del proceso web: fichas de cosecha cada 2 horas
     (en punto, desde las 6am Ecuador), lotes viernes y lunes, y fichas de
-    aplicacion fitosanitaria cada hora de 6am a 6pm (con reintento de envios). Solo si
+    aplicacion fitosanitaria cada hora de 6am a 6pm (solo lectura). Solo si
     SYNC_INFORMIX esta activo (una sola instancia debe correrlo)."""
     if not settings.SYNC_INFORMIX:
         logger.info("Sync Informix APAGADO (SYNC_INFORMIX=false)")
