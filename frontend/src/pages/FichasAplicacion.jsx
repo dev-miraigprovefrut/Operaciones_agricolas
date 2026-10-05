@@ -47,6 +47,7 @@ export default function FichasAplicacion() {
   const [cargando, setCargando] = useState(false)
   const [busqueda, setBusqueda] = useState('')
   const [filtro, setFiltro] = useState('')       // '' | PENDIENTE | EN_CURSO | POR | ENVIADO | ERROR
+  const [filtroErp, setFiltroErp] = useState('') // estado en Jireh: '' | PE | AU | CN
   const [abiertaId, setAbiertaId] = useState(null)
   const [ocupado, setOcupado] = useState(false)
   const [actualizando, setActualizando] = useState(false)
@@ -128,11 +129,12 @@ export default function FichasAplicacion() {
   const grupo = (f) => f.estado_aplicacion !== 'APLICADA' ? f.estado_aplicacion
     : f.envio_erp === 'ENVIADO' ? 'ENVIADO' : f.envio_erp === 'ERROR' ? 'ERROR' : 'POR'
   const visibles = useMemo(() => fichas.filter(f => {
+    if (filtroErp && f.estado_erp !== filtroErp) return false
     if (filtro && grupo(f) !== filtro) return false
     if (!busqueda) return true
     const b = busqueda.toLowerCase()
     return [f.ocult, f.lote, f.hacienda, f.cultivo, f.tractor, f.aplicador].some(v => String(v || '').toLowerCase().includes(b))
-  }), [fichas, filtro, busqueda])  // eslint-disable-line react-hooks/exhaustive-deps
+  }), [fichas, filtro, filtroErp, busqueda])  // eslint-disable-line react-hooks/exhaustive-deps
   const cuenta = (g) => fichas.filter(f => grupo(f) === g).length
   const abierta = fichas.find(f => f.id === abiertaId) || null
   const cerrar = useCallback(() => setAbiertaId(null), [])
@@ -166,6 +168,18 @@ export default function FichasAplicacion() {
         <input className="form-control" placeholder="Buscar orden, lote, hacienda, equipo…" value={busqueda} onChange={e => setBusqueda(e.target.value)} style={{flex: 1, minWidth: '200px'}} />
       </div>
 
+      {/* Estado de la ficha en Jireh */}
+      <div style={{display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.5rem'}}>
+        <span style={{fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-secondary)', marginRight: '0.2rem'}}>ESTADO JIREH:</span>
+        {[['', 'Todos', '#7b1fa2'], ['PE', 'Pendiente', '#f0ad4e'], ['AU', 'Autorizado', '#28a745'], ['CN', 'Confirmado', '#6c757d']].map(([k, t, c]) => (
+          <button key={k} onClick={() => setFiltroErp(k)} style={{border: `1px solid ${filtroErp === k ? c : 'var(--color-border)'}`, borderRadius: '20px', padding: '0.25rem 0.8rem', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 600,
+            background: filtroErp === k ? c : 'transparent', color: filtroErp === k ? 'white' : c}}>
+            {t} ({k ? fichas.filter(f => f.estado_erp === k).length : fichas.length})
+          </button>
+        ))}
+      </div>
+
+      {/* Estado de la aplicacion */}
       <div style={{display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '0.8rem'}}>
         {[['', `Todas (${fichas.length})`], ['PENDIENTE', `Por aplicar (${cuenta('PENDIENTE')})`], ['EN_CURSO', `En aplicación (${cuenta('EN_CURSO')})`],
           ['POR', `Por sincronizar (${cuenta('POR')})`], ['ENVIADO', `Sincronizadas (${cuenta('ENVIADO')})`], ['ERROR', `Con error (${cuenta('ERROR')})`]].map(([k, t]) => (
