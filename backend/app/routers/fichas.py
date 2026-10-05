@@ -17,7 +17,7 @@ from datetime import date, time, timedelta
 from decimal import Decimal
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
@@ -79,12 +79,29 @@ def _ficha(db: Session, ficha_id: int, bloquear: bool = False) -> FichaAplicacio
     return f
 
 
+def _refrescar_en_fondo(semanas: list[tuple[int, int]], ocult: str) -> None:
+    from ..database import SessionLocal
+    db = SessionLocal()
+    try:
+        sync.sincronizar(db, semanas, ocult)
+    except Exception:  # noqa: BLE001  (VPN caida: queda la copia)
+        db.rollback()
+        logger.warning("No se pudo refrescar fichas de %s desde Informix", ocult)
+    finally:
+        db.close()
+
+
 @router.get("")
-def listar(ocult: Optional[str] = None, anio: Optional[int] = None, semana: Optional[int] = None,
-           id_registro: Optional[int] = None, db: Session = Depends(get_db), _: Usuario = Depends(_acceso)):
+def listar(background: BackgroundTasks, ocult: Optional[str] = None, anio: Optional[int] = None,
+           semana: Optional[int] = None, id_registro: Optional[int] = None,
+           db: Session = Depends(get_db), _: Usuario = Depends(_acceso)):
     """Por orden de cultivo (bitacora): fichas de la semana pasada, actual y
     siguiente; se refrescan de Informix si la copia tiene mas de 15 min (si la
-    VPN esta caida se devuelve la copia). Por semana: listado para el reporte."""
+    VPN esta caida se devuelve la copia). Por semana: listado para el reporte.
+
+    Si ya hay copia se responde con ella y el refresco va en segundo plano:
+    Informix por la VPN puede tardar mas que los 8 s que espera la tablet, que
+    entonces mostraba "No hay ficha de aplicacion" aunque la ficha existia."""
     if id_registro is not None:
         return [_out(f) for f in db.scalars(_query().where(FichaAplicacion.id_registro == id_registro))]
     semanas = [(anio, semana)] if anio and semana else sync.semanas_vigentes()
@@ -96,7 +113,9 @@ def listar(ocult: Optional[str] = None, anio: Optional[int] = None, semana: Opti
             return []
         actuales = list(db.scalars(q.where(FichaAplicacion.ocult == ocult)))
         vieja = not actuales or min(f.fecha_sincronizacion for f in actuales) < ahora_ecuador() - _REFRESCO
-        if vieja:
+        if vieja and actuales:
+            background.add_task(_refrescar_en_fondo, semanas, ocult)
+        elif vieja:
             try:
                 sync.sincronizar(db, semanas, ocult)
             except Exception:  # noqa: BLE001  (VPN caida: se usa la copia)
