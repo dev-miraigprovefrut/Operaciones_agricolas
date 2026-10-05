@@ -78,11 +78,19 @@ def _activos(tipo: str) -> list[dict]:
         return []
 
 
+def _proyectos(a: dict) -> list[str]:
+    """Fincas del activo: lista 'proyectos' (modelo nuevo) o texto 'proyecto'
+    separado por coma (modelo anterior)."""
+    if isinstance(a.get("proyectos"), list):
+        return [str(p).strip() for p in a["proyectos"] if str(p).strip()]
+    return [p.strip() for p in (a.get("proyecto") or "").split(",") if p.strip()]
+
+
 def drones() -> list[dict]:
     """Drones del maestro de Activos. 'nombre' es lo que se guarda en el
     registro (campo tractor), ej. '080 - DRON'."""
     return [{"id": a.get("codigo", ""), "numeracion": a.get("numeracion") or "",
-             "descripcion": a.get("descripcion") or "", "proyecto": a.get("proyecto") or "",
+             "descripcion": a.get("descripcion") or "", "proyecto": ", ".join(_proyectos(a)),
              "nombre": f"{a.get('numeracion') or ''} - DRON".strip(" -")}
             for a in _activos(TIPO_ACTIVO_DRON)]
 
@@ -99,7 +107,7 @@ def _bombas_activos() -> list[dict]:
                 "id": a.get("codigo", ""), "marca": a.get("marca") or "", "numeracion": a.get("numeracion") or "",
                 "tipo_implemento": desc, "descripcion_implemento": desc,
                 "actividad": a.get("actividad") or "", "cultivo": a.get("cultivo") or "",
-                "proyectos": [p.strip() for p in (a.get("proyecto") or "").split(",") if p.strip()],
+                "proyectos": _proyectos(a),
                 "tipo_tractor": "", "recuperada": False, "nombre": desc,
             })
     return out
