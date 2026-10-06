@@ -67,7 +67,8 @@ def _consultar(semanas: list[tuple[int, int]], ocult: str | None = None) -> list
 SELECT d.docul_cod_docul, d.docul_cod_ocult, d.docul_ani_ccult, d.docul_num_sema, d.docul_cod_acamp, a.acamp_nom_acamp,
        d.docul_tip_docul, d.docul_cod_prod, d.docul_nom_comer, d.docul_cod_unid, d.docul_cod_clasi, d.docul_can_aplic,
        d.docul_est_docul, d.docul_can_sali, d.docul_can_rapli, d.docul_fec_aplic, d.docul_cod_scult,
-       o.ocult_cod_lotes, o.ocult_dim_lotes, o.ocult_cod_proda, h.hacda_nom_hacda, p.proye_nom_proye
+       o.ocult_cod_lotes, o.ocult_dim_lotes, o.ocult_cod_proda, h.hacda_nom_hacda, p.proye_nom_proye,
+       d.docul_cd1_prod, d.docul_cd1_unid
 FROM agdocul d, agocult o, agacamp a, agproye p, aghacda h
 WHERE o.ocult_cod_ocult = d.docul_cod_ocult AND o.ocult_cod_empr = d.docul_cod_empr
   AND a.acamp_cod_acamp = d.docul_cod_acamp
@@ -80,10 +81,15 @@ WHERE o.ocult_cod_ocult = d.docul_cod_ocult AND o.ocult_cod_empr = d.docul_cod_e
   AND ({filtro_sem}){filtro_ocult}""")
     cols = ["cod_docul", "ocult", "anio", "semana", "acamp", "actividad", "tipo", "cod_prod", "nom_comer", "cod_unid",
             "cod_clasi", "can_aplic", "estado", "can_sali", "can_rapli", "fec_aplic", "edad", "lote", "has", "cultivo",
-            "hacienda", "proyecto"]
+            "hacienda", "proyecto", "cd1_prod", "cd1_unid"]
     filas = [dict(zip(cols, f)) for f in filas]
     if not filas:
         return []
+    # docul_cod_prod es el producto del plan; si se cambio antes de aprobar
+    # (docul_aut_docul = CM) el que realmente sale es docul_cd1_prod.
+    for f in filas:
+        f["cod_prod"] = (str(f["cd1_prod"]).strip() if f["cd1_prod"] else "") or f["cod_prod"]
+        f["cod_unid"] = f["cd1_unid"] or f["cod_unid"]
     # Catalogos del ERP (descripcion, unidad, clasificacion, carencia)
     prods = {r[0]: r for r in ejecutar_query(f"""SELECT prod_cod_prod, prod_nom_prod, prod_des_prod FROM saeprod
         WHERE prod_cod_empr = {empresa} AND prod_cod_prod IN ({_en({f['cod_prod'] for f in filas})})""")}
@@ -144,7 +150,9 @@ def sincronizar(db: Session, semanas: list[tuple[int, int]] | None = None, ocult
                 pr = FichaAplicacionProducto(cod_docul=cod)
                 ficha.productos.append(pr)
             has = _num(c["has"])
-            cant = _num(p["can_aplic"])
+            # can_aplic queda con la cantidad del plan original; la real es can_sali
+            cant = _num(p["can_sali"])
+            cant = cant if cant is not None else _num(p["can_aplic"])
             pr.tipo, pr.cod_prod, pr.nombre_comercial = p["tipo"], p["cod_prod"], p["nom_comer"]
             pr.descripcion, pr.clasificacion, pr.unidad, pr.carencia = (p["descripcion"], p["clasificacion"],
                                                                         p["unidad"], p["carencia"])
