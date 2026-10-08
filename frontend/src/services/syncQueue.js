@@ -236,8 +236,15 @@ async function procesarCola() {
   // Acciones de un mismo registro (cliente_id) van en orden: si una falla, las
   // siguientes de ese registro esperan a la proxima vuelta (no gastan reintentos).
   const dependencia = (item) => {
-    const m = String(item.url || '').match(/\/cliente\/([^/?]+)/)
-    return m ? decodeURIComponent(m[1]) : (item.body?.cliente_id || item.body?.cliente_registro || null)
+    const url = String(item.url || '')
+    const m = url.match(/\/cliente\/([^/?]+)/) || url.match(/[?&]cliente_transporte=([^&]+)/)
+    if (m) return decodeURIComponent(m[1])
+    const b = item.body || {}
+    if (b.cliente_id || b.cliente_registro || b.cliente_transporte) return b.cliente_id || b.cliente_registro || b.cliente_transporte
+    const t = url.match(/\/cosecha-transp\/(\d+)/) || url.match(/[?&]id_transporte=(\d+)/)
+    if (t || b.id_transporte) return `t:${t ? t[1] : b.id_transporte}`
+    const r = url.match(/\/api\/registros\/(\d+)/)
+    return r ? `r:${r[1]}` : null
   }
   const bloqueados = new Set()
 

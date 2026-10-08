@@ -9,7 +9,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8007'
 function ReportesCosecha() {
   const [fichas, setFichas] = useState([])
   const [empresaTema, setEmpresaTema] = useState(null)
-  useEffect(() => { obtenerEmpresaNintanga().then(setEmpresaTema) }, [])
+  useEffect(() => { obtenerEmpresaNintanga().then(setEmpresaTema).catch(() => {}) }, [])
   const [loading, setLoading] = useState(true)
   const [busqueda, setBusqueda] = useState('')
   const [filtroEstado, setFiltroEstado] = useState('Todos')

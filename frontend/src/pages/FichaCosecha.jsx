@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import DrawerCosecha from '../components/DrawerCosecha'
+import { fetchWithOffline, fetchConTimeout, cacheData } from '../services/syncQueue'
+import { mezclarFichas, claveFicha } from '../services/cosechaLocal'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8007'
 
@@ -11,15 +13,12 @@ function FichaCosecha() {
   const [filaHoverId, setFilaHoverId] = useState(null)
   const [actualizando, setActualizando] = useState(false)
 
-  // Cargar fichas desde backend
+  // Fichas del servidor (con copia para SIN INTERNET) + las que estan solo en el celular
   const fetchFichas = async () => {
     setActualizando(true)
     try {
-      const res = await fetch(`${API_URL}/api/cosecha-transp`, {})
-      if (res.ok) {
-        const data = await res.json()
-        setFichas(data)
-      }
+      const { data } = await fetchWithOffline(`${API_URL}/api/cosecha-transp`, 'cosecha_fichas')
+      setFichas(await mezclarFichas(Array.isArray(data) ? data : []))
     } catch (err) {
       console.error('Error cargando fichas:', err)
     } finally {
@@ -29,7 +28,19 @@ function FichaCosecha() {
 
   useEffect(() => {
     fetchFichas()
-  }, [])
+    // al volver la señal la cola sincroniza: refrescar la lista despues
+    const alVolver = () => setTimeout(fetchFichas, 6000)
+    window.addEventListener('online', alVolver)
+    // Copia de los lotes para buscarlos sin internet (1 vez por hora, con señal)
+    const t = setTimeout(async () => {
+      if (!navigator.onLine || Date.now() - Number(localStorage.getItem('oa_precarga_lotes') || 0) < 60 * 60 * 1000) return
+      try {
+        const r = await fetchConTimeout(`${API_URL}/api/lotes-infx`, 30000)
+        if (r.ok) { await cacheData('lotes_all', await r.json()); localStorage.setItem('oa_precarga_lotes', String(Date.now())) }
+      } catch { /* sin señal */ }
+    }, 3000)
+    return () => { window.removeEventListener('online', alVolver); clearTimeout(t) }
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const abrirNueva = () => {
     setFichaSeleccionada(null)
@@ -124,10 +135,10 @@ function FichaCosecha() {
                 const fondoGrupo = grupo.fichas.length > 1 && gIdx % 2 === 1 ? 'var(--color-bg-light)' : undefined
                 const comunResaltado = grupoHover === grupo.clave
                 return grupo.fichas.map((ficha, idx) => {
-                  const filaResaltada = filaHoverId === ficha.id
+                  const filaResaltada = filaHoverId === claveFicha(ficha)
                   return (
-                  <tr key={ficha.id} className="clickeable" onClick={() => seleccionarFicha(ficha)}
-                    onMouseEnter={() => { setGrupoHover(grupo.clave); setFilaHoverId(ficha.id) }}
+                  <tr key={claveFicha(ficha)} className="clickeable" onClick={() => seleccionarFicha(ficha)}
+                    onMouseEnter={() => { setGrupoHover(grupo.clave); setFilaHoverId(claveFicha(ficha)) }}
                     onMouseLeave={() => { setGrupoHover(null); setFilaHoverId(null) }}
                     style={idx > 0 ? {borderTop: 'none'} : undefined}>
                     {idx === 0 && <>
@@ -141,7 +152,9 @@ function FichaCosecha() {
                         )}
                       </td>
                     </>}
-                    <td style={{background: filaResaltada ? 'var(--color-bg-light)' : fondoGrupo}}>{ficha.productos?.map(p => p.lote).filter(Boolean).join(', ') || '-'}</td>
+                    <td style={{background: filaResaltada ? 'var(--color-bg-light)' : fondoGrupo}}>{ficha.productos?.map(p => p.lote).filter(Boolean).join(', ') || '-'}
+                      {ficha._local && <div style={{fontSize: '0.68rem', color: '#e67e22', fontWeight: 600}} title="Guardada en el celular, se envía al haber señal"><i className='bx bx-time-five'></i> Por sincronizar</div>}
+                    </td>
                     <td style={{background: filaResaltada ? 'var(--color-bg-light)' : fondoGrupo}}>{ficha.productos?.map(p => p.producto).filter(Boolean).join(', ') || '-'}</td>
                     <td style={{background: filaResaltada ? 'var(--color-bg-light)' : fondoGrupo}}>{ficha.productos?.map(p => p.variedad).filter(Boolean).join(', ') || '-'}</td>
                     <td style={{background: filaResaltada ? 'var(--color-bg-light)' : fondoGrupo}}>{ficha.productos?.reduce((sum, p) => sum + (p.cantidad || 0), 0) || '-'}</td>

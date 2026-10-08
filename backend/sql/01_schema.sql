@@ -401,3 +401,7 @@ CREATE INDEX IF NOT EXISTS ix_ficha_producto_ficha ON ficha_aplicacion_producto 
 -- conexion y la cola lo envia despues (idempotente) con la hora real.
 ALTER TABLE registro ADD COLUMN IF NOT EXISTS cliente_id VARCHAR(40);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_registro_cliente_id ON registro (cliente_id) WHERE cliente_id IS NOT NULL;
+
+-- Fichas de cosecha creadas sin internet (id que genera el celular)
+ALTER TABLE cosecha_transporte ADD COLUMN IF NOT EXISTS cliente_id VARCHAR(40);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_cosecha_transporte_cliente_id ON cosecha_transporte (cliente_id) WHERE cliente_id IS NOT NULL;

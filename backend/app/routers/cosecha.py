@@ -2,20 +2,27 @@
 Informix. Las respuestas conservan los nombres de campo de antes (id,
 id_transporte, correccion_id...) aunque las columnas sigan la convencion nueva.
 """
+import base64
+import binascii
+import io
+import json
 import logging
 import os
 import uuid
+from datetime import datetime
 from typing import List, Optional
 
 import boto3
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from ..auth import Usuario, cedula_de, requiere, usuario_efectivo
 from ..comun import ahora_ecuador
+from .tractores import _fecha_evento
 from ..config import settings
 from ..database import get_db
 
@@ -52,6 +59,44 @@ async def subir_foto(request: Request, file: UploadFile = File(...), _: Usuario 
     return {"url": f"{str(request.base_url).rstrip('/')}/api/media/foto-seguridad/{key}"}
 
 
+class FotoPendienteIn(BaseModel):
+    id_transporte: Optional[int] = None
+    cliente_transporte: Optional[str] = None
+    imagen: str = Field(max_length=6_000_000)      # data URL base64 (jpeg comprimido en el celular)
+
+
+@router.post("/cosecha-transp/foto-pendiente")
+def subir_foto_pendiente(data: FotoPendienteIn, request: Request, db: Session = Depends(get_db),
+                         _: Usuario = Depends(SEGURIDAD)):
+    """Foto de seguridad tomada SIN INTERNET: llega despues por la cola del
+    celular (en base64), se sube a S3 y se agrega a seg_foto_url de la ficha."""
+    id_t = _resolver_transporte(db, data.id_transporte, data.cliente_transporte)
+    cab, _, datos = data.imagen.partition(",")
+    tipo = "image/png" if "png" in cab else "image/webp" if "webp" in cab else "image/jpeg"
+    try:
+        binario = base64.b64decode(datos or cab, validate=True)
+    except (binascii.Error, ValueError) as e:
+        raise HTTPException(400, "Imagen invalida") from e
+    key = f"{S3_CARPETA}/{uuid.uuid4().hex}.{tipo.split('/')[1].replace('jpeg', 'jpg')}"
+    try:
+        _s3.upload_fileobj(io.BytesIO(binario), settings.S3_BUCKET, key, ExtraArgs={"ContentType": tipo})
+    except Exception as e:  # noqa: BLE001
+        logger.exception("S3 upload (foto pendiente)")
+        raise HTTPException(502, "Error subiendo imagen") from e
+    url = f"{str(request.base_url).rstrip('/')}/api/media/foto-seguridad/{key}"
+    actual = db.execute(text("SELECT seg_foto_url FROM cosecha_transporte WHERE id_cosecha_transporte = :id"),
+                        {"id": id_t}).scalar() or ""
+    try:
+        fotos = json.loads(actual) if actual.strip().startswith("[") else ([actual] if actual.startswith("http") else [])
+    except ValueError:
+        fotos = []
+    fotos.append(url)
+    db.execute(text("UPDATE cosecha_transporte SET seg_foto_url = :f WHERE id_cosecha_transporte = :id"),
+               {"f": json.dumps(fotos), "id": id_t})
+    db.commit()
+    return {"url": url}
+
+
 @router.get("/media/foto-seguridad/{key:path}")
 def ver_foto(key: str, _: Usuario = Depends(SEGURIDAD)):
     if not key.startswith(f"{S3_CARPETA}/") or ".." in key:
@@ -82,6 +127,9 @@ class TransporteIn(BaseModel):
     seg_observaciones: Optional[str] = None
     seg_foto_url: Optional[str] = None
     estado: str = "Activo"
+    # Trabajo SIN INTERNET: id que genera el celular (reintentos idempotentes) y hora real
+    cliente_id: Optional[str] = Field(None, max_length=40)
+    fecha: Optional[datetime] = None
 
 
 _SEG = ["seg_chaleco", "seg_cofia", "seg_casco", "seg_calzado_adecuado", "seg_limpieza_bines",
@@ -93,16 +141,42 @@ def crear_transporte(data: TransporteIn, db: Session = Depends(get_db),
                      user: Usuario = Depends(requiere("registrar_cosecha"))):
     if data.estado not in ("Activo", "Enviado"):
         raise HTTPException(400, f"Estado inválido: {data.estado}")
+    if data.cliente_id:      # reintento de la cola offline: ya llego
+        ya = db.execute(text("SELECT id_cosecha_transporte FROM cosecha_transporte WHERE cliente_id = :c"),
+                        {"c": data.cliente_id}).scalar()
+        if ya:
+            return {"id": ya, "message": "Transporte creado"}
     cols = ["id_camion", "id_supervisor", "propietario", "placa", "nombre_chofer", *_SEG, "seg_comentario",
-            "seg_observaciones", "seg_foto_url", "estado"]
+            "seg_observaciones", "seg_foto_url", "estado", "cliente_id"]
     valores = {c: getattr(data, c) for c in cols}
-    row = db.execute(text(f"""
-        INSERT INTO cosecha_transporte ({', '.join(cols)}, fecha_creacion, creado_por)
-        VALUES ({', '.join(':' + c for c in cols)}, :fecha_creacion, :creado_por)
-        RETURNING id_cosecha_transporte"""),
-        {**valores, "fecha_creacion": ahora_ecuador(), "creado_por": user.username}).fetchone()
-    db.commit()
+    try:
+        row = db.execute(text(f"""
+            INSERT INTO cosecha_transporte ({', '.join(cols)}, fecha_creacion, creado_por)
+            VALUES ({', '.join(':' + c for c in cols)}, :fecha_creacion, :creado_por)
+            RETURNING id_cosecha_transporte"""),
+            {**valores, "fecha_creacion": _fecha_evento(data.fecha), "creado_por": user.username}).fetchone()
+        db.commit()
+    except IntegrityError:      # dos envios del mismo cliente_id a la vez
+        db.rollback()
+        ya = db.execute(text("SELECT id_cosecha_transporte FROM cosecha_transporte WHERE cliente_id = :c"),
+                        {"c": data.cliente_id}).scalar()
+        if not ya:
+            raise
+        return {"id": ya, "message": "Transporte creado"}
     return {"id": row[0], "message": "Transporte creado"}
+
+
+def _resolver_transporte(db: Session, id_transporte: Optional[int], cliente: Optional[str]) -> int:
+    """Id de la ficha por su id o por el id que genero el celular (ficha creada
+    sin internet que aun no conoce su id del servidor)."""
+    if id_transporte:
+        return id_transporte
+    if cliente:
+        r = db.execute(text("SELECT id_cosecha_transporte FROM cosecha_transporte WHERE cliente_id = :c"),
+                       {"c": cliente}).scalar()
+        if r:
+            return r
+    raise HTTPException(404, "Ficha no encontrada")
 
 
 def _id_supervisor_de(db: Session, user: Usuario) -> int | None:
@@ -139,7 +213,7 @@ def listar_transportes(request: Request, db: Session = Depends(get_db), user: Us
     rows = db.execute(text(f"""
         SELECT t.id_cosecha_transporte AS transp_id, t.fecha_creacion, t.fecha_salida, t.propietario, t.placa,
                t.nombre_chofer, t.estado, t.id_correccion AS correccion_id, t.observacion_falla, t.id_supervisor,
-               t.recibido_por, t.hora_ingreso, t.creado_por, s.nombre AS supervisor_nombre,
+               t.recibido_por, t.hora_ingreso, t.creado_por, t.cliente_id, s.nombre AS supervisor_nombre,
                COALESCE(pr.nombre, NULLIF(TRIM(c.centro_costos), ''), NULLIF(TRIM(li.proyecto), ''), li.hacienda)
                    AS proyecto_nombre,
                c.id_cosecha AS producto_id, c.producto, c.lote, c.variedad, c.cantidad, c.orden_cultivo,
@@ -161,7 +235,8 @@ def listar_transportes(request: Request, db: Session = Depends(get_db), user: Us
         f = fichas.get(r["transp_id"])
         if f is None:
             f = fichas[r["transp_id"]] = {
-                "id": r["transp_id"], "fecha_creacion": r["fecha_creacion"], "fecha_salida": r["fecha_salida"],
+                "id": r["transp_id"], "cliente_id": r["cliente_id"], "fecha_creacion": r["fecha_creacion"],
+                "fecha_salida": r["fecha_salida"],
                 "propietario": r["propietario"], "placa": r["placa"], "nombre_chofer": r["nombre_chofer"],
                 "estado": r["estado"] or "Activo", "correccion_id": r["correccion_id"],
                 "observacion_falla": r["observacion_falla"], "id_supervisor": r["id_supervisor"],
@@ -199,11 +274,14 @@ class ProductoItem(BaseModel):
 
 class ProductosIn(BaseModel):
     id_transporte: Optional[int] = None
+    cliente_transporte: Optional[str] = None     # ficha creada sin internet
     productos: List[ProductoItem] = []
 
 
 @router.post("/cosecha-productos")
 def guardar_productos(data: ProductosIn, db: Session = Depends(get_db), _: Usuario = Depends(ESCRIBIR)):
+    if data.cliente_transporte and not data.id_transporte:
+        data.id_transporte = _resolver_transporte(db, None, data.cliente_transporte)
     existentes = {}
     if data.id_transporte:
         existentes = {r[1]: r[0] for r in db.execute(text(
@@ -243,6 +321,19 @@ def eliminar_producto(item_id: int, db: Session = Depends(get_db), _: Usuario = 
     return {"message": "Producto eliminado"}
 
 
+@router.delete("/cosecha-productos/orden/{orden_cultivo}")
+def eliminar_producto_por_orden(orden_cultivo: str, id_transporte: Optional[int] = None,
+                                cliente_transporte: Optional[str] = None, db: Session = Depends(get_db),
+                                _: Usuario = Depends(ESCRIBIR)):
+    """Quita un producto (orden de cultivo) de una ficha aun no enviada; sirve
+    para productos agregados sin internet (no tienen id todavia)."""
+    id_t = _resolver_transporte(db, id_transporte, cliente_transporte)
+    db.execute(text("""DELETE FROM cosecha WHERE id_cosecha_transporte = :t AND orden_cultivo = :o
+        AND COALESCE(estado, 'Cargado') = 'Cargado'"""), {"t": id_t, "o": orden_cultivo})
+    db.commit()
+    return {"message": "Producto eliminado"}
+
+
 @router.put("/cosecha-productos/item/{item_id}/peso")
 def poner_peso(item_id: int, data: dict, db: Session = Depends(get_db), _: Usuario = Depends(ESCRIBIR)):
     peso, num_ficha = data.get("peso_neto", 0), data.get("num_ficha")
@@ -261,10 +352,30 @@ def _existe(result) -> None:
         raise HTTPException(404, "Ficha no encontrada")
 
 
+@router.put("/cosecha-transp/cliente/{cliente_id}/enviar")
+def enviar_camion_cliente(cliente_id: str, data: dict, db: Session = Depends(get_db), _: Usuario = Depends(ESCRIBIR)):
+    """Enviar una ficha creada SIN INTERNET (por el id del celular)."""
+    return enviar_camion(_resolver_transporte(db, None, cliente_id), data, db, _)
+
+
 @router.put("/cosecha-transp/{id_transp}/enviar")
 def enviar_camion(id_transp: int, data: dict, db: Session = Depends(get_db), _: Usuario = Depends(ESCRIBIR)):
+    """Marca la ficha como Enviada (hora de salida = la real, aunque llegue tarde
+    por la cola) y numera sus productos si aun no tienen numero."""
+    fecha = None
+    if data.get("fecha"):
+        try:
+            fecha = datetime.fromisoformat(str(data["fecha"]))
+        except ValueError:
+            fecha = None
+    estado = db.execute(text("SELECT estado FROM cosecha_transporte WHERE id_cosecha_transporte = :id"),
+                        {"id": id_transp}).scalar()
+    if estado is None:
+        raise HTTPException(404, "Ficha no encontrada")
+    if estado in ("Enviado", "Recibido"):       # reintento de la cola offline
+        return {"message": "Camión enviado", "numeracion": _numerar(db, id_transp)}
     _existe(db.execute(text("""UPDATE cosecha_transporte SET fecha_salida = :f, estado = 'Enviado', planta = :planta
-        WHERE id_cosecha_transporte = :id"""), {"id": id_transp, "planta": data.get("planta", ""), "f": ahora_ecuador()}))
+        WHERE id_cosecha_transporte = :id"""), {"id": id_transp, "planta": data.get("planta", ""), "f": _fecha_evento(fecha)}))
     usuario = data.get("usuario", "")
     if usuario:
         db.execute(text("UPDATE cosecha SET responsable = :u, estado = 'Enviado' WHERE id_cosecha_transporte = :id"),
@@ -272,7 +383,7 @@ def enviar_camion(id_transp: int, data: dict, db: Session = Depends(get_db), _: 
     else:
         db.execute(text("UPDATE cosecha SET estado = 'Enviado' WHERE id_cosecha_transporte = :id"), {"id": id_transp})
     db.commit()
-    return {"message": "Camión enviado"}
+    return {"message": "Camión enviado", "numeracion": _numerar(db, id_transp)}
 
 
 @router.put("/cosecha-transp/{id_transp}/finalizar")
@@ -287,20 +398,25 @@ def finalizar(id_transp: int, data: dict, db: Session = Depends(get_db), _: Usua
 def generar_numeracion(id_transporte: int, db: Session = Depends(get_db), _: Usuario = Depends(ESCRIBIR)):
     """COS-aaaamm-NNNNNN unica y secuencial POR PRODUCTO. Con candado de
     transaccion: dos camiones a la vez ya no pueden sacar el mismo numero."""
+    return {"numeracion": _numerar(db, id_transporte)}
+
+
+def _numerar(db: Session, id_transporte: int) -> str | None:
+    """Numera SOLO los productos que aun no tienen numero (antes se volvian a
+    numerar en cada llamada: un reintento cambiaba los numeros ya impresos).
+    Devuelve el primer numero de la ficha."""
     prefijo = f"COS-{ahora_ecuador().strftime('%Y%m')}-"
     db.execute(text("SELECT pg_advisory_xact_lock(hashtext('operaciones_agricolas.cosecha.numeracion'))"))
     ultimo = db.execute(text("SELECT max(numeracion) FROM cosecha WHERE numeracion LIKE :p"),
                         {"p": prefijo + "%"}).scalar()
     seq = int(ultimo.split("-")[-1]) if ultimo else 0
-    primero = None
-    for (pid,) in db.execute(text("SELECT id_cosecha FROM cosecha WHERE id_cosecha_transporte = :id ORDER BY id_cosecha"),
-                             {"id": id_transporte}).fetchall():
+    for (pid,) in db.execute(text("""SELECT id_cosecha FROM cosecha WHERE id_cosecha_transporte = :id
+            AND (numeracion IS NULL OR numeracion = '') ORDER BY id_cosecha"""), {"id": id_transporte}).fetchall():
         seq += 1
-        num = f"{prefijo}{seq:06d}"
-        db.execute(text("UPDATE cosecha SET numeracion = :n WHERE id_cosecha = :id"), {"n": num, "id": pid})
-        primero = primero or num
+        db.execute(text("UPDATE cosecha SET numeracion = :n WHERE id_cosecha = :id"), {"n": f"{prefijo}{seq:06d}", "id": pid})
     db.commit()
-    return {"numeracion": primero}
+    return db.execute(text("""SELECT numeracion FROM cosecha WHERE id_cosecha_transporte = :id
+        AND numeracion IS NOT NULL AND numeracion != '' ORDER BY id_cosecha LIMIT 1"""), {"id": id_transporte}).scalar()
 
 
 @router.get("/cosecha-numeracion/{id_transporte}")
@@ -387,6 +503,15 @@ def corregir(id_transp: int, data: Optional[dict] = None, db: Session = Depends(
         db.rollback()
         raise
     return {"id": nuevo_id, "observacion": obs, "message": "Ficha corregida creada."}
+
+
+@router.delete("/cosecha-transp/cliente/{cliente_id}")
+def eliminar_ficha_cliente(cliente_id: str, db: Session = Depends(get_db), _: Usuario = Depends(ESCRIBIR)):
+    id_t = db.execute(text("SELECT id_cosecha_transporte FROM cosecha_transporte WHERE cliente_id = :c"),
+                      {"c": cliente_id}).scalar()
+    if not id_t:
+        return {"ok": True}       # nunca llego o ya se borro (reintento)
+    return eliminar_ficha(id_t, db, _)
 
 
 @router.delete("/cosecha-transp/{id_transp}")

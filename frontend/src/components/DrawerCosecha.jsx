@@ -1,7 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
 import Swal from 'sweetalert2'
 import { confirmar, exito } from './SwalConfig'
-import { addToQueue } from '../services/syncQueue'
+import { addToQueue, fetchWithOffline, fetchConTimeout, getCachedData } from '../services/syncQueue'
+import { nuevoClienteId, ahoraLocal } from '../services/registrosLocales'
+import { guardarFichaLocal, fichaTienePendientes, comprimirFoto } from '../services/cosechaLocal'
 import { obtenerEmpresaNintanga, logoUrl } from '../services/empresasService'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8007'
@@ -50,8 +52,33 @@ function DrawerCosecha({ open, onClose, ficha, onSaved }) {
     pesoNeto: ''
   })
   const [fichaCreatedId, setFichaCreatedId] = useState(null)  // ID del transporte recién creado
+  const [fichaCreada, setFichaCreada] = useState(null)        // ficha creada aqui (puede ser sin internet)
   const [guardandoCamion, setGuardandoCamion] = useState(false)
-  const fichaId = ficha?.id || fichaCreatedId  // usar prop o el recién creado
+  const refFicha = ficha || fichaCreada                       // {id?, cliente_id?}
+  const fichaId = ficha?.id || fichaCreatedId || fichaCreada?.id || null  // id del servidor (si ya se conoce)
+  // A que ficha va cada accion: por id si ya se conoce, si no por el id del celular
+  const destinoFicha = () => fichaId ? { id_transporte: fichaId } : { cliente_transporte: refFicha?.cliente_id || null }
+  const qsDestino = () => fichaId ? `id_transporte=${fichaId}` : `cliente_transporte=${encodeURIComponent(refFicha?.cliente_id || '')}`
+  // SIN INTERNET: si la ficha ya tiene acciones en cola, la nueva va detras (orden)
+  const ejecutarCosecha = async (url, metodo, body, descripcion) => {
+    if (refFicha && await fichaTienePendientes(refFicha)) {
+      await addToQueue(url, metodo, body, 'cosecha', descripcion)
+      return null
+    }
+    return offlineFetch(url, { method: metodo, headers: { 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) }, descripcion)
+  }
+  // Copia local de la ficha (lista de fichas sin internet)
+  const actualizarLocal = async (cambios) => {
+    if (!refFicha) return
+    const base = { ...(ficha || {}), ...(fichaCreada || {}) }
+    const nueva = { ...base, ...cambios }
+    await guardarFichaLocal(nueva)
+    if (!ficha) setFichaCreada(nueva)
+  }
+  const productoServidor = (p, usuario) => ({
+    producto: p.producto, lote: p.lote, centro_costos: p.proyecto || p.centroCostos || '', orden_cultivo: p.ordenCultivo,
+    variedad: p.variedad, ubicacion: p.hacienda || '', cantidad: parseInt(p.cantidad) || 0, responsable: usuario,
+  })
   const [productos, setProductos] = useState([])
   const [productoTemp, setProductoTemp] = useState({ producto: '', lote: '', centroCostos: '', ordenCultivo: '', variedad: '', numFichaOrg: '', numFicha: '', peso: '', cantidad: '', busqueda: '' })
   const [lotesSugeridos, setLotesSugeridos] = useState([])
@@ -59,7 +86,7 @@ function DrawerCosecha({ open, onClose, ficha, onSaved }) {
   const [showFichaPreview, setShowFichaPreview] = useState(false)
   const fichaIframeRef = useRef(null)
   const [empresaTema, setEmpresaTema] = useState(null)
-  useEffect(() => { obtenerEmpresaNintanga().then(setEmpresaTema) }, [])
+  useEffect(() => { obtenerEmpresaNintanga().then(setEmpresaTema).catch(() => {}) }, [])
   const [camiones, setCamiones] = useState([])
   const [placaBusqueda, setPlacaBusqueda] = useState('')
   const [showCamionSugeridos, setShowCamionSugeridos] = useState(false)
@@ -71,17 +98,18 @@ function DrawerCosecha({ open, onClose, ficha, onSaved }) {
 
   // Cargar catálogos al montar
   useEffect(() => {
+    // Catalogos con copia en el celular (fetchWithOffline): sirven sin internet
     const fetchCamiones = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/camiones`)
-        if (res.ok) setCamiones(await res.json())
+        const { data } = await fetchWithOffline(`${API_URL}/api/camiones`, 'camiones')
+        setCamiones(Array.isArray(data) ? data : [])
       } catch (err) { console.error(err) }
     }
     const fetchSupervisores = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/supervisores`)
-        if (res.ok) {
-          const data = await res.json()
+        const { data: lista } = await fetchWithOffline(`${API_URL}/api/supervisores`, 'supervisores')
+        {
+          const data = Array.isArray(lista) ? lista : []
           setSupervisores(data)
           // Auto-asociar: comparar usuario logueado con catálogo de supervisores
           const usuario = (localStorage.getItem('usuario_nombre') || '').toUpperCase().trim()
@@ -97,8 +125,8 @@ function DrawerCosecha({ open, onClose, ficha, onSaved }) {
     }
     const fetchProyectos = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/proyectos`)
-        if (res.ok) setProyectos(await res.json())
+        const { data } = await fetchWithOffline(`${API_URL}/api/proyectos`, 'proyectos')
+        setProyectos(Array.isArray(data) ? data : [])
       } catch (err) { console.error(err) }
     }
     fetchCamiones()
@@ -130,10 +158,16 @@ function DrawerCosecha({ open, onClose, ficha, onSaved }) {
         pesoSalida: '',
         pesoNeto: ''
       })
-      // Cargar productos existentes
-      fetchProductosExistentes(ficha.id)
-      // Cargar numeración automática
-      fetchNumeracion(ficha.id)
+      // Productos: primero los de la lista (sirve sin internet), luego refresco del servidor
+      setProductos((ficha.productos || []).map(p => ({
+        id: p.id || `${p.orden_cultivo}-${Math.random()}`, producto: p.producto || '', lote: p.lote || '', variedad: p.variedad || '',
+        ordenCultivo: p.orden_cultivo || '', proyecto: p.centro_costos || '', hacienda: p.ubicacion || '', cantidad: p.cantidad || 0,
+        pesoNeto: p.peso || '', numFicha: p.num_ficha || '', numeracion: p.numeracion || '', responsable: p.responsable || ''
+      })))
+      if (ficha.id) {
+        fetchProductosExistentes(ficha.id)
+        fetchNumeracion(ficha.id)
+      }
       setPaso(ficha.estado === 'Enviado' ? 3 : 2)
     } else {
       resetForm()
@@ -142,7 +176,8 @@ function DrawerCosecha({ open, onClose, ficha, onSaved }) {
 
   const fetchProductosExistentes = async (idTransporte) => {
     try {
-      const res = await offlineFetch(`${API_URL}/api/cosecha-productos/${idTransporte}`, { method: 'GET' }, 'Cargar productos')
+      // (sin encolar: una lectura no va a la cola offline)
+      const res = await fetchConTimeout(`${API_URL}/api/cosecha-productos/${idTransporte}`, 6000)
       if (res && res.ok) {
         const data = await res.json()
         const productosExistentes = data.map(p => ({
@@ -171,7 +206,7 @@ function DrawerCosecha({ open, onClose, ficha, onSaved }) {
 
   const fetchNumeracion = async (idTransporte) => {
     try {
-      const res = await fetch(`${API_URL}/api/cosecha-numeracion/${idTransporte}`)
+      const res = await fetchConTimeout(`${API_URL}/api/cosecha-numeracion/${idTransporte}`, 6000)
       if (res.ok) {
         const data = await res.json()
         if (data.numeracion) {
@@ -184,6 +219,7 @@ function DrawerCosecha({ open, onClose, ficha, onSaved }) {
   const resetForm = () => {
     setPaso(1)
     setFichaCreatedId(null)
+    setFichaCreada(null)
     setFormData({
       placa: '', responsable: '', nombreChofer: '', idCamion: null, idSupervisor: null, cumpleNormativas: false,
       seguridad: { chaleco: false, cofia: false, casco: false, calzadoAdecuado: false, limpiezaBines: false, materialesExtranos: false, saran: false },
@@ -239,33 +275,23 @@ function DrawerCosecha({ open, onClose, ficha, onSaved }) {
 
     if (!productoTemp.editandoId && cant > binesDisponibles) return
 
-    // Guardar directamente en la base de datos
-    if (fichaId) {
+    // Se guarda en el celular y se envia (sin internet queda en cola)
+    if (refFicha) {
+      const usuario = localStorage.getItem('usuario_nombre') || ''
+      const nuevo = { ...productoTemp, cantidad: cant, id: productoTemp.editandoId || Date.now() }
+      const lista = productoTemp.editandoId
+        ? productos.map(p => p.id === productoTemp.editandoId ? { ...p, ...nuevo } : p)
+        : [...productos.filter(p => p.ordenCultivo !== nuevo.ordenCultivo), nuevo]
+      setProductos(lista)
+      await actualizarLocal({ productos: lista.map(p => ({ ...productoServidor(p, usuario), id: typeof p.id === 'number' && p.id < 1000000000 ? p.id : undefined, numeracion: p.numeracion || '' })) })
       try {
-        const res = await fetch(`${API_URL}/api/cosecha-productos`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            id_transporte: fichaId,
-            productos: [{
-              producto: productoTemp.producto,
-              lote: productoTemp.lote,
-              centro_costos: productoTemp.proyecto || '',
-              orden_cultivo: productoTemp.ordenCultivo,
-              variedad: productoTemp.variedad,
-              ubicacion: productoTemp.hacienda || '',
-              cantidad: cant,
-              responsable: localStorage.getItem('usuario_nombre') || ''
-            }]
-          })
-        })
-        if (res && res.ok) {
-          await fetchProductosExistentes(fichaId)
-          if (onSaved) onSaved()
-        }
+        const res = await ejecutarCosecha(`${API_URL}/api/cosecha-productos`, 'POST',
+          { ...destinoFicha(), productos: [productoServidor(nuevo, usuario)] }, 'Agregar producto a la ficha')
+        if (res && res.ok && fichaId) await fetchProductosExistentes(fichaId)
       } catch (err) {
         console.error('Error guardando producto:', err)
       }
+      if (onSaved) onSaved()
     } else {
       if (productoTemp.editandoId) {
         setProductos(productos.map(p => p.id === productoTemp.editandoId
@@ -296,13 +322,17 @@ function DrawerCosecha({ open, onClose, ficha, onSaved }) {
   }
 
   const eliminarProducto = async (id) => {
-    // Si es un id numérico bajo (de la BD), eliminarlo del backend
-    if (typeof id === 'number' && id < 1000000000) {
-      try {
-        await offlineFetch(`${API_URL}/api/cosecha-productos/item/${id}`, { method: 'DELETE' }, 'Eliminar producto cosecha')
-      } catch (err) { console.error(err) }
-    }
-    setProductos(productos.filter(p => p.id !== id))
+    const p = productos.find(x => x.id === id)
+    const lista = productos.filter(x => x.id !== id)
+    setProductos(lista)
+    if (!refFicha || !p) return
+    const usuario = localStorage.getItem('usuario_nombre') || ''
+    await actualizarLocal({ productos: lista.map(x => ({ ...productoServidor(x, usuario), numeracion: x.numeracion || '' })) })
+    try {
+      // Por orden de cultivo: sirve tambien para productos agregados sin internet (sin id)
+      await ejecutarCosecha(`${API_URL}/api/cosecha-productos/orden/${encodeURIComponent(p.ordenCultivo)}?${qsDestino()}`, 'DELETE', null, 'Eliminar producto cosecha')
+    } catch (err) { console.error(err) }
+    if (onSaved) onSaved()
   }
 
   const abrirSeguridadCheck = async () => {
@@ -443,8 +473,13 @@ function DrawerCosecha({ open, onClose, ficha, onSaved }) {
             }
             base.fotoUrl = JSON.stringify([...fotosExistentes, ...urlsSubidas])
           } catch (err) {
-            Swal.showValidationMessage('No se pudieron subir las fotos. Intenta de nuevo.')
-            return false
+            // SIN INTERNET: se guardan comprimidas en el celular y se suben al sincronizar
+            try {
+              base.fotosPendientes = await Promise.all(archivosNuevos.map(a => comprimirFoto(a)))
+            } catch {
+              Swal.showValidationMessage('No se pudieron guardar las fotos. Intenta de nuevo.')
+              return false
+            }
           }
         }
         return base
@@ -456,7 +491,8 @@ function DrawerCosecha({ open, onClose, ficha, onSaved }) {
         ...prev, cumpleNormativas: true,
         seguridad: { chaleco: formValues.chaleco, cofia: formValues.cofia, casco: formValues.casco, calzadoAdecuado: formValues.calzadoAdecuado, limpiezaBines: formValues.limpiezaBines, materialesExtranos: formValues.materialesExtranos, saran: formValues.saran },
         seguridadFotoUrl: formValues.fotoUrl,
-        seguridadObservaciones: formValues.observaciones
+        seguridadObservaciones: formValues.observaciones,
+        fotosPendientes: [...(prev.fotosPendientes || []), ...(formValues.fotosPendientes || [])]
       }))
     }
   }
@@ -469,10 +505,26 @@ function DrawerCosecha({ open, onClose, ficha, onSaved }) {
     if (guardandoCamion) return
     setGuardandoCamion(true)
     try {
+      const cliente_id = nuevoClienteId()
+      const fecha = ahoraLocal()
+      const sup = supervisores.find(s => s.id === formData.idSupervisor)
+      const local = {
+        cliente_id, id: null, estado: 'Activo', fecha_creacion: fecha, fecha_salida: null, numeracion: '',
+        id_camion: formData.idCamion, id_supervisor: formData.idSupervisor, supervisor_nombre: sup?.nombre || '',
+        propietario: formData.responsable, placa: formData.placa, nombre_chofer: formData.nombreChofer,
+        seg_chaleco: formData.seguridad.chaleco, seg_cofia: formData.seguridad.cofia, seg_casco: formData.seguridad.casco,
+        seg_calzado_adecuado: formData.seguridad.calzadoAdecuado, seg_limpieza_bines: formData.seguridad.limpiezaBines,
+        seg_materiales_extranos: formData.seguridad.materialesExtranos, seg_saran: formData.seguridad.saran,
+        seg_foto_url: formData.seguridadFotoUrl, seg_observaciones: formData.seguridadObservaciones, productos: [],
+      }
+      await guardarFichaLocal(local)
+      setFichaCreada(local)
       const response = await offlineFetch(`${API_URL}/api/cosecha-transp`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          cliente_id,
+          fecha,
           id_camion: formData.idCamion,
           id_supervisor: formData.idSupervisor,
           propietario: formData.responsable,
@@ -490,13 +542,18 @@ function DrawerCosecha({ open, onClose, ficha, onSaved }) {
           estado: 'Activo'
         })
       }, 'Guardar datos del camión')
+      let idServidor = null
       if (response) {
         const data = await response.json()
-        if (data.id) setFichaCreatedId(data.id)
-        await exito('Datos del camión guardados')
-      } else {
-        await exito('Datos guardados offline — se sincronizará cuando haya conexión')
+        if (data.id) { idServidor = data.id; setFichaCreatedId(data.id); setFichaCreada({ ...local, id: data.id }); await guardarFichaLocal({ ...local, id: data.id }) }
       }
+      // Fotos tomadas sin internet: se suben despues (van detras de la ficha en la cola)
+      for (const imagen of (formData.fotosPendientes || [])) {
+        await addToQueue(`${API_URL}/api/cosecha-transp/foto-pendiente`, 'POST',
+          idServidor ? { id_transporte: idServidor, imagen } : { cliente_transporte: cliente_id, imagen }, 'cosecha', 'Foto de seguridad')
+      }
+      if (response) await exito('Datos del camión guardados')
+      else await exito('Guardado en el celular — se enviará cuando haya señal')
       if (onSaved) onSaved()
       setPaso(2)
     } catch (err) {
@@ -529,46 +586,24 @@ function DrawerCosecha({ open, onClose, ficha, onSaved }) {
     const usuario = localStorage.getItem('usuario_nombre') || ''
 
     try {
-      // Guardar productos
-      await offlineFetch(`${API_URL}/api/cosecha-productos`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          id_transporte: fichaId || null,
-          productos: productos.map(p => ({
-            producto: p.producto,
-            lote: p.lote,
-            centro_costos: p.proyecto || '',
-            orden_cultivo: p.ordenCultivo,
-            variedad: p.variedad,
-            ubicacion: p.hacienda || '',
-            cantidad: parseInt(p.cantidad) || 0,
-            responsable: usuario
-          }))
-        })
-      }, 'Guardar productos para envío')
-
-      // Generar numeración en operaciones_cosecha
-      if (fichaId) {
-        try {
-          const numRes = await fetch(`${API_URL}/api/cosecha-numeracion/${fichaId}`, { method: 'POST' })
-          if (numRes.ok) {
-            const numData = await numRes.json()
-            setFormData(prev => ({...prev, numeracionAuto: numData.numeracion}))
-          }
-        } catch (err) { console.error('Error generando numeración:', err) }
+      // Productos (por si alguno se edito) y Enviar: el servidor pone la hora real
+      // de salida y numera los productos. Sin internet todo queda en cola.
+      await ejecutarCosecha(`${API_URL}/api/cosecha-productos`, 'POST',
+        { ...destinoFicha(), productos: productos.map(p => productoServidor(p, usuario)) }, 'Guardar productos para envío')
+      const fecha = ahoraLocal()
+      const urlEnviar = fichaId ? `${API_URL}/api/cosecha-transp/${fichaId}/enviar`
+        : `${API_URL}/api/cosecha-transp/cliente/${encodeURIComponent(refFicha?.cliente_id || '')}/enviar`
+      const res = await ejecutarCosecha(urlEnviar, 'PUT', { usuario, planta: plantaFinal, fecha }, 'Enviar camión')
+      let numeracion = ''
+      if (res) {
+        const data = await res.json().catch(() => ({}))
+        numeracion = data.numeracion || ''
+        if (numeracion) setFormData(prev => ({...prev, numeracionAuto: numeracion}))
       }
+      await actualizarLocal({ estado: 'Enviado', fecha_salida: fecha, planta: plantaFinal, numeracion })
 
-      // Actualizar fecha_salida y planta en transporte
-      if (fichaId) {
-        await offlineFetch(`${API_URL}/api/cosecha-transp/${fichaId}/enviar`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ usuario, planta: plantaFinal })
-        }, 'Enviar camión')
-      }
-
-      await exito('Camión enviado')
+      if (res) await exito(numeracion ? `Camión enviado · ${numeracion}` : 'Camión enviado')
+      else await exito('Camión enviado sin señal — el número se asigna al sincronizar')
       if (onSaved) onSaved()
       setPaso(3)
     } catch (err) {
@@ -650,18 +685,13 @@ function DrawerCosecha({ open, onClose, ficha, onSaved }) {
                 <button onClick={async () => {
                   const conf = await confirmar({ titulo: '¿Eliminar esta ficha?', html: 'Todavia no tiene productos agregados -- se borrara por completo, no se puede deshacer.', icono: 'warning' })
                   if (!conf.isConfirmed) return
-                  try {
-                    const res = await fetch(`${API_URL}/api/cosecha-transp/${fichaId}`, { method: 'DELETE', headers: {} })
-                    if (res.ok) {
-                      await exito('Ficha eliminada')
-                      onSaved?.()
-                      onClose()
-                    } else {
-                      Swal.fire('Error', 'No se pudo eliminar la ficha', 'error')
-                    }
-                  } catch {
-                    Swal.fire('Error', 'Error de conexión', 'error')
-                  }
+                  const url = fichaId ? `${API_URL}/api/cosecha-transp/${fichaId}`
+                    : `${API_URL}/api/cosecha-transp/cliente/${encodeURIComponent(refFicha?.cliente_id || '')}`
+                  await actualizarLocal({ estado: 'Eliminado' })
+                  await ejecutarCosecha(url, 'DELETE', null, 'Eliminar ficha de cosecha')
+                  await exito('Ficha eliminada')
+                  onSaved?.()
+                  onClose()
                 }} style={{background: '#dc3545', color: 'white', border: 'none', borderRadius: '6px', padding: '0.4rem 0.7rem', cursor: 'pointer', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.3rem'}}>
                   <i className='bx bx-trash'></i> Eliminar
                 </button>
@@ -805,12 +835,23 @@ function DrawerCosecha({ open, onClose, ficha, onSaved }) {
                       if (val.length >= 2) {
                         try {
                           const supProyecto = supervisores.find(s => s.id === (formData.idSupervisor || ficha?.id_supervisor))?.proyecto || ''
-                          const res = await fetch(`${API_URL}/api/lotes-infx/buscar?ocult=${encodeURIComponent(val)}&cosecha=true${supProyecto ? `&proyecto=${encodeURIComponent(supProyecto)}` : ''}`)
-                          if (res.ok) {
-                            const data = await res.json()
-                            if (idBusqueda === busquedaLoteIdRef.current) setLotesSugeridos(data)
+                          const res = await fetchConTimeout(`${API_URL}/api/lotes-infx/buscar?ocult=${encodeURIComponent(val)}&cosecha=true${supProyecto ? `&proyecto=${encodeURIComponent(supProyecto)}` : ''}`, 5000)
+                          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+                          const data = await res.json()
+                          if (idBusqueda === busquedaLoteIdRef.current) setLotesSugeridos(data)
+                        } catch {
+                          // SIN INTERNET: buscar en la copia de lotes del celular (misma regla de edad de cosecha)
+                          const todos = (await getCachedData('lotes_all').catch(() => null)) || []
+                          const q = val.toLowerCase()
+                          const listo = (l) => {
+                            const edad = parseFloat(l.edad_sem) || 0
+                            const prod = (l.ocult_cod_proda || '').toUpperCase()
+                            return /BROCOLI|BRÓCOLI|COLIFLOR|ROMANESCO/.test(prod) ? edad >= 11 : edad >= 8
                           }
-                        } catch (err) { console.error(err) }
+                          const hits = todos.filter(l => listo(l) && [l.ocult_cod_ocult, l.lote, l.hacienda, l.ocult_cod_proda, l.variedad, l.proyecto]
+                            .some(v => String(v || '').toLowerCase().includes(q))).slice(0, 50)
+                          if (idBusqueda === busquedaLoteIdRef.current) setLotesSugeridos(hits)
+                        }
                       } else {
                         setLotesSugeridos([])
                       }
@@ -1123,7 +1164,7 @@ function DrawerCosecha({ open, onClose, ficha, onSaved }) {
                     proyectoNombre = esOrganico ? 'SAN SEBASTIÁN' : (p.proyecto || p.centroCostos || '')
                   }
                   proyectoNombre = proyectoNombre.replace(/-CC\d+$/i, '')
-                  const numeroRojo = p.numeracion || formData.numeracionAuto || ficha?.numeracion || (() => {
+                  const numeroRojo = p.numeracion || formData.numeracionAuto || ficha?.numeracion || (!fichaId ? 'POR ASIGNAR' : null) || (() => {
                     const f = ficha?.fecha_creacion ? new Date(ficha.fecha_creacion) : new Date()
                     const aa = f.getFullYear().toString().slice(2)
                     const mm = (f.getMonth() + 1).toString().padStart(2, '0')

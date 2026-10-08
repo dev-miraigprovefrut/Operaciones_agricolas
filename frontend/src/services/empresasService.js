@@ -16,9 +16,20 @@ export const logoUrl = (empresa) =>
 
 /** Obtiene la lista de empresas. */
 export async function listarEmpresas() {
-  const res = await fetch(`${API_BASE}/empresas`)
-  if (!res.ok) throw new Error('No se pudieron cargar las empresas')
-  return res.json()
+  // Copia en el celular: SIN INTERNET se usa la ultima (colores, logo de los documentos)
+  try {
+    const res = await fetch(`${API_BASE}/empresas`)
+    if (!res.ok) throw new Error('No se pudieron cargar las empresas')
+    const data = await res.json()
+    try { localStorage.setItem('oa_empresas', JSON.stringify(data)) } catch { /* sin espacio */ }
+    return data
+  } catch (err) {
+    try {
+      const copia = JSON.parse(localStorage.getItem('oa_empresas') || 'null')
+      if (Array.isArray(copia)) return copia
+    } catch { /* copia danada */ }
+    throw err
+  }
 }
 
 // Modulo de una sola empresa (Nintanga): se cachea en memoria para los
