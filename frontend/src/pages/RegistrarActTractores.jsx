@@ -1,9 +1,10 @@
 import { useState, useRef, useEffect } from 'react'
 import Swal from 'sweetalert2'
 import { confirmar, exito, advertencia, error as swalError } from '../components/SwalConfig'
-import { fetchWithOffline, addToQueue, processQueue, getPendingCount, getPendingItems, cacheData, getCachedData } from '../services/syncQueue'
+import { fetchWithOffline, fetchConTimeout, addToQueue, processQueue, getPendingCount, getPendingItems, cacheData, getCachedData } from '../services/syncQueue'
 import useOnlineStatus from '../services/useOnlineStatus'
 import FichaAplicacion from '../components/FichaAplicacion'
+import { nuevoClienteId, ahoraLocal, guardarLocal, mezclar, urlRegistro, accionDe, claveRegistro } from '../services/registrosLocales'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8007'
 
@@ -31,6 +32,63 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
       await addToQueue(url, options.method || 'GET', body, 'registro', descripcion || 'Registro de actividad')
       return null
     }
+  }
+
+  // ---- Trabajo sin internet (services/registrosLocales.js) ----
+  // La accion se guarda primero en el celular (con la hora real) y se ve al
+  // instante; luego se envia. Si ese registro ya tiene acciones en la cola, la
+  // nueva va detras (orden), aunque haya señal.
+  const ejecutarLocal = async (reg, cambios, metodo, url, body, descripcion) => {
+    const nuevo = { ...reg, ...cambios }
+    await guardarLocal(nuevo)
+    setRegistros(prev => {
+      const resto = prev.filter(r => claveRegistro(r) !== claveRegistro(reg))
+      return nuevo.estado === 'Eliminado' ? resto : [nuevo, ...resto]
+    })
+    let enCola = false
+    try {
+      const pend = await getPendingItems()
+      enCola = pend.some(p => (reg.cliente_id && `${p.url} ${JSON.stringify(p.body || {})}`.includes(reg.cliente_id))
+        || (!reg.cliente_id && reg.id && String(p.url).includes(`/api/registros/${reg.id}`)))
+    } catch { enCola = false }
+    if (enCola) {
+      await addToQueue(url, metodo, body, 'registro', descripcion)
+      return null
+    }
+    return offlineFetch(url, { method: metodo, headers: { 'Content-Type': 'application/json' }, ...(body ? { body: JSON.stringify(body) } : {}) }, descripcion)
+  }
+  const avisoSinSenal = () => Swal.fire({ toast: true, position: 'top', icon: 'info', timer: 2500, showConfirmButton: false,
+    title: 'Sin señal: guardado en el celular, se enviará al haber conexión' })
+  const tipoDeActividad = () => formData.actividad === 'APOYOS GENERALES' || apoyosGenerales.some(a => a.actividad === formData.actividad) ? 'Apoyos Generales' : 'Actividades Culturales'
+  // Registro nuevo (con su cliente_id) a partir del formulario
+  const registroNuevo = (estado, ubicacion) => {
+    const fecha = ahoraLocal()
+    const checkActivo = checksActivos.find(c => c.tractor === formData.tractor)
+    return {
+      cliente_id: nuevoClienteId(), id: null, equipo, estado, fecha_creacion: fecha,
+      tractor: formData.tractor, apero: formData.apero, lote: formData.lote, hacienda: formData.hacienda,
+      orden_cultivo: formData.ordenCultivo, actividad: formData.actividad, subactividad: formData.subactividad,
+      usuario: formData.operador, ubicacion, id_check: checkActivo?.id || null, tipo: tipoDeActividad(),
+      fecha_historial: estado === 'Ejecutándose' ? [{ accion: 'inicio', fecha, ubicacion }] : [],
+      tiempo_inicio: estado === 'Ejecutándose' ? fecha : null, tiempo_real: 0, tiempo_paro: 0, revision_estado: 'NO_REVISADO',
+    }
+  }
+  const crearRegistro = (reg, descripcion) => {
+    const { cliente_id, tractor, apero, lote, hacienda, orden_cultivo, actividad, subactividad, usuario, ubicacion, id_check, tipo, estado, fecha_creacion } = reg
+    return ejecutarLocal(reg, {}, 'POST', `${API_URL}/api/registros`,
+      { cliente_id, fecha: fecha_creacion, tractor, apero, lote, hacienda, orden_cultivo, actividad, subactividad, usuario, ubicacion, id_check, tipo, estado, equipo }, descripcion)
+  }
+  // Cambio de estado (iniciar / pausar / reanudar / finalizar) con la hora real
+  const cambiarEstado = async (reg, estado, descripcion) => {
+    const fecha = ahoraLocal()
+    const ubicacion = await obtenerUbicacion()
+    const cambios = {
+      estado, fecha_historial: [...(reg.fecha_historial || []), { accion: accionDe(reg.estado, estado), fecha, ubicacion }],
+      ...(estado === 'Finalizado' ? { fecha_fin: fecha } : {}),
+      ...(estado === 'Ejecutándose' && reg.estado === 'Pendiente' ? { tiempo_inicio: fecha } : {}),
+    }
+    const res = await ejecutarLocal(reg, cambios, 'PUT', urlRegistro(API_URL, reg), { estado, ubicacion, fecha }, descripcion)
+    return { res, reg: { ...reg, ...cambios } }
   }
 
   // Obtener ubicación GPS del dispositivo
@@ -143,9 +201,15 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
     let vivo = true
     setCargandoFichas(true)
     fetchWithOffline(`${API_URL}/api/fichas-aplicacion?ocult=${ocult}`, `fichas_${ocult}`)
-      .then(({ data }) => {
+      .then(async ({ data, fromCache }) => {
         if (!vivo) return
-        const lista = Array.isArray(data) ? data : []
+        let lista = Array.isArray(data) ? data : []
+        // Sin señal y sin copia de esta orden: buscar en la copia de todas las fichas vigentes
+        if (fromCache && !lista.length) {
+          const todas = (await getCachedData('fichas_todas').catch(() => null)) || []
+          lista = todas.filter(f => String(f.ocult) === ocult)
+        }
+        if (!vivo) return
         setFichas(lista)
         // Preferir: la que ya aplica este equipo, la semana actual, herbicida si la subactividad lo dice, no aplicadas
         const d = new Date(); const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()))
@@ -160,6 +224,26 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
       .finally(() => { if (vivo) setCargandoFichas(false) })
     return () => { vivo = false }
   }, [esFito, formData.ordenCultivo])  // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Precarga para trabajar SIN INTERNET: todos los lotes y las fichas de
+  // aplicacion vigentes (semana pasada, actual y siguiente). En segundo plano,
+  // con señal y como mucho una vez por hora.
+  useEffect(() => {
+    const t = setTimeout(async () => {
+      if (!navigator.onLine) return
+      if (Date.now() - Number(localStorage.getItem('oa_precarga') || 0) < 60 * 60 * 1000) return
+      try {
+        const [l, f] = await Promise.all([
+          fetchConTimeout(`${API_URL}/api/lotes-infx`, 30000),
+          fetchConTimeout(`${API_URL}/api/fichas-aplicacion`, 60000),
+        ])
+        if (l.ok) await cacheData('lotes_all', await l.json())
+        if (f.ok) await cacheData('fichas_todas', await f.json())
+        if (l.ok && f.ok) localStorage.setItem('oa_precarga', String(Date.now()))
+      } catch { /* sin señal: se intenta en la proxima carga */ }
+    }, 4000)
+    return () => clearTimeout(t)
+  }, [])
 
   // Inicia la ficha ANTES de crear la actividad: si otro equipo ya la tiene se
   // detiene; sin conexion se encola y se sigue.
@@ -180,6 +264,9 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
       await addToQueue(url, 'POST', body, 'registro', 'Iniciar ficha de aplicación')
     }
     localStorage.setItem(claveFicha(formData.tractor), JSON.stringify({ id: ficha.id, productos: ficha.productos }))
+    // tambien en pantalla (sin señal no hay respuesta del servidor que lo actualice)
+    setFichas(prev => prev.map(f => f.id === ficha.id ? { ...f, estado_aplicacion: 'EN_CURSO', tractor: formData.tractor, equipo,
+      temperatura, velocidad_viento, aplicador: body.aplicador, bomba: body.bomba } : f))
     return true
   }
 
@@ -214,7 +301,7 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
     if (!value) return
     const res = await offlineFetch(`${API_URL}/api/fichas-aplicacion/${guardada.id}/finalizar`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id_registro: registro.id || null, ...value })
+      body: JSON.stringify({ id_registro: registro.id || null, cliente_registro: registro.cliente_id || null, ...value })
     }, 'Completar ficha de aplicación')
     localStorage.removeItem(claveFicha(registro.tractor))
     if (!res) { await exito('Ficha guardada sin conexión — se registrará al sincronizar'); return }
@@ -403,7 +490,7 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
       ])
 
       // Solo los registros de este equipo (los viejos, sin `equipo`, son de tractores)
-      const registrosData = (registrosRes.data || []).filter(r => (r.equipo || 'Tractores') === equipo)
+      const registrosData = (await mezclar(registrosRes.data || [])).filter(r => (r.equipo || 'Tractores') === equipo)
       if (esDron) {
         const catalogo = (Array.isArray(tractoresRes.data) ? tractoresRes.data : []).map(d => d.nombre)
         setDronesUsados([...new Set([...catalogo, ...registrosData.map(r => r.tractor)].filter(Boolean))].sort())
@@ -444,7 +531,7 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
         if (tractorData) {
           try {
             const tractorIdPg = `${tractorData.marca}-${tractorData.modelo}-${tractorData.numeracion}`
-            const res = await fetch(`${API_URL}/api/equipo-horas/${encodeURIComponent(tractorIdPg)}`)
+            const res = await fetchConTimeout(`${API_URL}/api/equipo-horas/${encodeURIComponent(tractorIdPg)}`, 5000)
             if (res.ok) {
               const data = await res.json()
               if (data.horas_actuales != null) horometroVal = data.horas_actuales
@@ -625,48 +712,20 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
     try {
       let res
       if (registroSeleccionado) {
-        res = await offlineFetch(`${API_URL}/api/registros/${registroSeleccionado.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            tractor: formData.tractor,
-            apero: formData.apero,
-            lote: formData.lote,
-            hacienda: formData.hacienda,
-            orden_cultivo: formData.ordenCultivo,
-            actividad: formData.actividad,
-            subactividad: formData.subactividad,
-            usuario: formData.operador
-          })
-        }, 'Actualizar actividad')
+        const campos = {
+          tractor: formData.tractor, apero: formData.apero, lote: formData.lote, hacienda: formData.hacienda,
+          orden_cultivo: formData.ordenCultivo, actividad: formData.actividad, subactividad: formData.subactividad,
+          usuario: formData.operador,
+        }
+        res = await ejecutarLocal(registroSeleccionado, campos, 'PUT', urlRegistro(API_URL, registroSeleccionado), campos, 'Actualizar actividad')
       } else {
-        const ubicacion = await obtenerUbicacion()
-        const checkActivoGuardar = checksActivos.find(c => c.tractor === formData.tractor)
-        res = await offlineFetch(`${API_URL}/api/registros`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            tractor: formData.tractor,
-            apero: formData.apero,
-            lote: formData.lote,
-            hacienda: formData.hacienda,
-            orden_cultivo: formData.ordenCultivo,
-            actividad: formData.actividad,
-            subactividad: formData.subactividad,
-            usuario: formData.operador,
-            ubicacion,
-            id_check: checkActivoGuardar?.id || null,
-            tipo: formData.actividad === 'APOYOS GENERALES' || apoyosGenerales.some(a => a.actividad === formData.actividad) ? 'Apoyos Generales' : 'Actividades Culturales',
-            estado: 'Pendiente',
-            equipo
-          })
-        }, 'Crear actividad')
+        res = await crearRegistro(registroNuevo('Pendiente', await obtenerUbicacion()), 'Crear actividad')
       }
       await fetchData()
       if (res) {
         await exito('Actividad guardada')
       } else {
-        await exito('Actividad guardada offline — se sincronizará cuando haya conexión')
+        await exito('Actividad guardada en el celular — se enviará cuando haya conexión')
       }
       limpiarFormulario()
     } catch (err) {
@@ -710,63 +769,22 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
       })
       return
     }
-    // Evitar doble inicio: si ya hay un "Iniciar" pendiente de sincronizar sin conexión, no dejar iniciar otro
-    if (!registroSeleccionado) {
-      const pendientes = await getPendingItems()
-      const yaHayInicioPendiente = pendientes.some(p => p.descripcion === 'Crear e iniciar actividad' && p.usuario === (localStorage.getItem('usuario_nombre') || 'desconocido'))
-      if (yaHayInicioPendiente) {
-        advertencia({
-          titulo: 'Actividad pendiente de sincronizar',
-          texto: 'Ya iniciaste una actividad sin conexión y todavía no se ha sincronizado. Espera a que haya conexión antes de iniciar otra, para evitar duplicados.'
-        })
-        return
-      }
-    }
     setProcesando(true)
     try {
       if (fichaIniciar && !(await iniciarFicha(fichaIniciar.ficha, fichaIniciar.t, fichaIniciar.v))) return
-      let nuevoRegistro = null
+      let nuevoRegistro
       let res
       if (registroSeleccionado) {
-        const ubicacion = await obtenerUbicacion()
-        res = await offlineFetch(`${API_URL}/api/registros/${registroSeleccionado.id}`, {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            estado: 'Ejecutándose',
-            ubicacion
-          })
-        }, 'Iniciar actividad')
-        if (res) nuevoRegistro = await res.json()
+        ({ res, reg: nuevoRegistro } = await cambiarEstado(registroSeleccionado, 'Ejecutándose', 'Iniciar actividad'))
       } else {
-        const ubicacion = await obtenerUbicacion()
-        const checkActivoIniciar = checksActivos.find(c => c.tractor === formData.tractor)
-        res = await offlineFetch(`${API_URL}/api/registros`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            tractor: formData.tractor,
-            apero: formData.apero,
-            lote: formData.lote,
-            hacienda: formData.hacienda,
-            orden_cultivo: formData.ordenCultivo,
-            actividad: formData.actividad,
-            subactividad: formData.subactividad,
-            usuario: formData.operador,
-            ubicacion,
-            id_check: checkActivoIniciar?.id || null,
-            tipo: formData.actividad === 'APOYOS GENERALES' || apoyosGenerales.some(a => a.actividad === formData.actividad) ? 'Apoyos Generales' : 'Actividades Culturales',
-            estado: 'Ejecutándose',
-            equipo
-          })
-        }, 'Crear e iniciar actividad')
-        if (res) nuevoRegistro = await res.json()
+        nuevoRegistro = registroNuevo('Ejecutándose', await obtenerUbicacion())
+        res = await crearRegistro(nuevoRegistro, 'Crear e iniciar actividad')
       }
       await fetchData()
       setEstadoRegistro('iniciado')
-      if (nuevoRegistro) setRegistroSeleccionado(nuevoRegistro)
+      setRegistroSeleccionado(nuevoRegistro)
       setVistaActiva('tabla')
-      if (!res) await exito('Actividad guardada offline — se sincronizará cuando haya conexión')
+      if (!res) avisoSinSenal()
     } catch (err) {
       console.error('Error iniciando:', err)
       swalError('Error al iniciar la actividad')
@@ -778,23 +796,17 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
   const handlePausar = async () => {
     if (procesando) return
     if (!registroSeleccionado) {
-      advertencia({ titulo: 'No hay actividad seleccionada', texto: 'Si la iniciaste sin conexión, espera a que sincronice (revisa el indicador de pendientes) antes de pausarla.' })
+      advertencia({ titulo: 'No hay actividad seleccionada', texto: 'Seleccione la actividad en la lista.' })
       return
     }
     setProcesando(true)
     try {
-      const ubicacion = await obtenerUbicacion()
-      const res = await offlineFetch(`${API_URL}/api/registros/${registroSeleccionado.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ estado: 'Pausado', ubicacion })
-      }, 'Pausar actividad')
+      const { res, reg } = await cambiarEstado(registroSeleccionado, 'Pausado', 'Pausar actividad')
+      setRegistroSeleccionado(reg)
       await fetchData()
       setEstadoRegistro('pausado')
       setVistaActiva('tabla')
-      if (res === null) {
-        advertencia({ titulo: 'Sin conexión', texto: 'No se pudo confirmar con el servidor. Se guardó para reintentar automáticamente — revisa el indicador de pendientes hasta que sincronice.' })
-      }
+      if (res === null) avisoSinSenal()
     } catch (err) {
       console.error('Error pausando:', err)
     } finally {
@@ -805,7 +817,7 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
   const handleReanudar = async () => {
     if (procesando) return
     if (!registroSeleccionado) {
-      advertencia({ titulo: 'No hay actividad seleccionada', texto: 'Si la pausaste sin conexión, espera a que sincronice antes de reanudarla.' })
+      advertencia({ titulo: 'No hay actividad seleccionada', texto: 'Seleccione la actividad en la lista.' })
       return
     }
     // Validar que no haya otra actividad ejecutándose (global, cualquier tractor)
@@ -821,18 +833,12 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
     }
     setProcesando(true)
     try {
-      const ubicacion = await obtenerUbicacion()
-      const res = await offlineFetch(`${API_URL}/api/registros/${registroSeleccionado.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ estado: 'Ejecutándose', ubicacion })
-      }, 'Reanudar actividad')
+      const { res, reg } = await cambiarEstado(registroSeleccionado, 'Ejecutándose', 'Reanudar actividad')
+      setRegistroSeleccionado(reg)
       await fetchData()
       setEstadoRegistro('iniciado')
       setVistaActiva('tabla')
-      if (res === null) {
-        advertencia({ titulo: 'Sin conexión', texto: 'No se pudo confirmar con el servidor. Se guardó para reintentar automáticamente — revisa el indicador de pendientes hasta que sincronice.' })
-      }
+      if (res === null) avisoSinSenal()
     } catch (err) {
       console.error('Error reanudando:', err)
     } finally {
@@ -843,24 +849,16 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
   const handleFinalizar = async () => {
     if (procesando) return
     if (!registroSeleccionado) {
-      advertencia({ titulo: 'No hay actividad seleccionada', texto: 'Si la iniciaste sin conexión, espera a que sincronice antes de finalizarla.' })
+      advertencia({ titulo: 'No hay actividad seleccionada', texto: 'Seleccione la actividad en la lista.' })
       return
     }
     setProcesando(true)
     try {
-      const ubicacion = await obtenerUbicacion()
-      const res = await offlineFetch(`${API_URL}/api/registros/${registroSeleccionado.id}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ estado: 'Finalizado', ubicacion })
-      }, 'Finalizar actividad')
-      const registroFin = registroSeleccionado
+      const { res, reg: registroFin } = await cambiarEstado(registroSeleccionado, 'Finalizado', 'Finalizar actividad')
       await fetchData()
       limpiarFormulario()
       setVistaActiva('tabla')
-      if (res === null) {
-        await advertencia({ titulo: 'Sin conexión', texto: 'No se pudo confirmar con el servidor. Se guardó para reintentar automáticamente — revisa el indicador de pendientes hasta que sincronice.' })
-      }
+      if (res === null) avisoSinSenal()
       await completarFicha(registroFin)
     } catch (err) {
       console.error('Error finalizando:', err)
@@ -884,7 +882,7 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
     // No cambia a card equipo, se queda en actividad
   }
 
-  const eliminarRegistro = async (id, e) => {
+  const eliminarRegistro = async (registro, e) => {
     e.stopPropagation()
     const result = await confirmar({
       titulo: '¿Desea eliminar este registro?',
@@ -893,14 +891,14 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
     })
     if (result.isConfirmed) {
       try {
-        const res = await offlineFetch(`${API_URL}/api/registros/${id}`, { method: 'DELETE' }, 'Eliminar registro')
+        const res = await ejecutarLocal(registro, { estado: 'Eliminado' }, 'DELETE', urlRegistro(API_URL, registro), null, 'Eliminar registro')
         await fetchData()
         if (res) {
           await exito('Registro eliminado')
         } else {
-          await exito('Eliminación guardada offline — se sincronizará cuando haya conexión')
+          await exito('Eliminación guardada en el celular — se enviará cuando haya conexión')
         }
-        if (registroSeleccionado?.id === id) {
+        if (registroSeleccionado && claveRegistro(registroSeleccionado) === claveRegistro(registro)) {
           limpiarFormulario()
         }
       } catch (err) {
@@ -1167,7 +1165,7 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
                         if (tractorData) {
                           try {
                             const tractorIdPg = `${tractorData.marca}-${tractorData.modelo}-${tractorData.numeracion}`
-                            const res = await fetch(`${API_URL}/api/equipo-horas/${encodeURIComponent(tractorIdPg)}`)
+                            const res = await fetchConTimeout(`${API_URL}/api/equipo-horas/${encodeURIComponent(tractorIdPg)}`, 5000)
                             if (res.ok) {
                               const data = await res.json()
                               if (data.horas_actuales != null) horometroVal = data.horas_actuales
@@ -1197,8 +1195,8 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
                       <tbody>
                         {regsDelTractor.map(registro => (
                           <tr 
-                            key={registro.id} 
-                            className={`clickeable ${registroSeleccionado?.id === registro.id ? 'selected' : ''} estado-${registro.estado?.toLowerCase().replace(' ', '-')}`}
+                            key={claveRegistro(registro)}
+                            className={`clickeable ${registroSeleccionado && claveRegistro(registroSeleccionado) === claveRegistro(registro) ? 'selected' : ''} estado-${registro.estado?.toLowerCase().replace(' ', '-')}`}
                             onClick={() => seleccionarRegistro(registro)}
                           >
                             <td>{formatHora(registro.fecha_creacion)}</td>
@@ -1207,7 +1205,7 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
                             <td>{registro.estado === 'Pendiente' ? '00:00:00' : formatTiempo(calcularTiempoReal(registro))}</td>
                             <td>
                               <button
-                                onClick={(e) => eliminarRegistro(registro.id, e)}
+                                onClick={(e) => eliminarRegistro(registro, e)}
                                 style={{background:'transparent',border:'none',color:'var(--color-text-secondary)',cursor:'pointer',padding:'0.3rem',fontSize:'1rem'}}
                                 title="Eliminar"
                               >
@@ -1294,7 +1292,7 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
                             let horometroVal = t.horometro || ''
                             // Buscar horas actuales en PostgreSQL (ot_equipo_horas)
                             try {
-                              const res = await fetch(`${API_URL}/api/equipo-horas/${encodeURIComponent(tractorIdPg)}`)
+                              const res = await fetchConTimeout(`${API_URL}/api/equipo-horas/${encodeURIComponent(tractorIdPg)}`, 5000)
                               if (res.ok) {
                                 const data = await res.json()
                                 if (data.horas_actuales != null) {
@@ -1529,7 +1527,8 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
                           setFormData(prev => ({...prev, lote: val, hacienda: '', ordenCultivo: '', edadSem: '', variedad: ''}))
                           if (val.length >= 2) {
                             try {
-                              const res = await fetch(`${API_URL}/api/lotes-infx/buscar?ocult=${encodeURIComponent(val)}`)
+                              const res = await fetchConTimeout(`${API_URL}/api/lotes-infx/buscar?ocult=${encodeURIComponent(val)}`, 5000)
+                              if (!res.ok) throw new Error(`HTTP ${res.status}`)
                               if (res.ok) {
                                 const data = await res.json()
                                 setLotesSugeridos(data)

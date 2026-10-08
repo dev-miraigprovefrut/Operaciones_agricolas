@@ -2,7 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
-import { API_URL, cargarSesion, cerrarSesion, limpiarDatosSesion, renovarSesion, esTractorista, cerrarPestana, HUB_LOGIN_URL, HUB_URL } from './services/sesion.js'
+import { API_URL, cargarSesion, cerrarSesion, limpiarDatosSesion, renovarSesion, esTractorista, cerrarPestana, HUB_LOGIN_URL, HUB_URL, haySesionGuardada } from './services/sesion.js'
 import { huboActividad, alVolverActividad } from './services/actividad.js'
 
 // Enlaces viejos del HUB traen #token=... en la URL: ya no se usa (la sesion
@@ -51,9 +51,11 @@ function renderizar() {
   // inactivo). Si al volver ya vencio, se cierra la pestaña.
   setInterval(() => { if (huboActividad(20 * 60 * 1000)) renovarSesion() }, 20 * 60 * 1000)
   alVolverActividad(async () => {
-    if (esTractorista()) return
-    const r = await fetch(`${API_URL}/api/auth/me`)
-    if (r.status === 401 && !(await renovarSesion())) sesionExpirada()
+    if (esTractorista() || !navigator.onLine) return
+    try {
+      const r = await fetch(`${API_URL}/api/auth/me`)
+      if (r.status === 401 && !(await renovarSesion())) sesionExpirada()
+    } catch { /* sin conexion: se sigue trabajando con lo guardado */ }
   })
   // La APLICACION se cierra tras 4 h sin actividad en ella (aparte de la
   // sesion de MirAI de 10 h): usuario del HUB -> se cierra la pestaña (el HUB
@@ -70,6 +72,7 @@ const CIERRE_POR_INACTIVIDAD_MS = 4 * 60 * 60 * 1000
 let cerrandoPorInactividad = false
 async function cerrarPorInactividad() {
   if (cerrandoPorInactividad) return
+  if ((esTractorista() || esDominioTractoristas) && !navigator.onLine) return   // sin internet no se podria volver a entrar
   cerrandoPorInactividad = true
   if (esTractorista() || esDominioTractoristas) {
     await cerrarSesion()   // borra la cookie del tractorista (conserva usuario/cedula guardados)
@@ -99,6 +102,9 @@ async function iniciar() {
     setTimeout(() => cerrarPestana(HUB_URL), 3500)
     return
   }
+  // SIN INTERNET: si el celular ya tiene la sesion guardada se entra igual y
+  // se trabaja con lo guardado (la cola envia todo al volver la señal).
+  if (haySesionGuardada()) { renderizar(); return }
   pantalla({ icono: 'bx-wifi-off', color: '#ff8a80', titulo: 'Sin conexión',
     texto: 'No se pudo contactar al servidor. Revise su conexión e intente de nuevo.',
     botones: [{ texto: 'Reintentar', accion: () => window.location.reload() }] })

@@ -68,11 +68,22 @@ export function limpiarDatosSesion() {
 /**
  * Carga la sesion. Devuelve 'ok' | 'sin_sesion' | 'sin_acceso' | 'sin_conexion'.
  */
+// Con señal debil el servidor puede no responder nunca: se corta a los 8 s
+// (y se entra sin conexion con la sesion guardada, ver main.jsx).
+const conLimite = (url, ms = 8000) => {
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), ms)
+  return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(t))
+}
+
+/** ¿Hay datos de una sesion anterior en el celular? (para entrar sin internet) */
+export const haySesionGuardada = () => !!(localStorage.getItem('usuario_tipo') && localStorage.getItem('usuario_nombre'))
+
 export async function cargarSesion() {
   let res
   try {
-    res = await fetch(`${API_URL}/api/auth/me`)
-    if (res.status === 401 && await renovarSesion()) res = await fetch(`${API_URL}/api/auth/me`)
+    res = await conLimite(`${API_URL}/api/auth/me`)
+    if (res.status === 401 && await renovarSesion()) res = await conLimite(`${API_URL}/api/auth/me`)
   } catch {
     return 'sin_conexion'
   }

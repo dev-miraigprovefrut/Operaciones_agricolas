@@ -36,7 +36,10 @@ self.addEventListener('activate', (event) => {
   )
 })
 
-// Fetch: network-first para todo, fallback a cache para offline
+// Fetch: network-first para todo, fallback a cache para offline.
+// ignoreVary: los archivos guardados al instalar se pidieron sin cabecera Origin
+// y el servidor responde con 'Vary: Origin'; sin esto, sin internet no se
+// encontraban y la app quedaba en blanco.
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url)
 
@@ -54,7 +57,7 @@ self.addEventListener('fetch', (event) => {
           caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone))
         }
         return response
-      }).catch(() => caches.match('/index.html'))
+      }).catch(() => caches.match('/index.html', { ignoreVary: true }))
     )
     return
   }
@@ -67,6 +70,6 @@ self.addEventListener('fetch', (event) => {
         caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone))
       }
       return response
-    }).catch(() => caches.match(event.request))
+    }).catch(() => caches.match(event.request, { ignoreVary: true }))
   )
 })

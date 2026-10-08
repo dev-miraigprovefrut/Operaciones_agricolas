@@ -12,6 +12,7 @@ import requests
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
@@ -313,6 +314,10 @@ class RegistroIn(BaseModel):
     id_check: Optional[int] = None
     estado: str = "Pendiente"
     equipo: str = "Tractores"          # Tractores | Drones (Bitacora Tractor / Bitacora Dron)
+    # Trabajo SIN INTERNET: el celular genera el id (cliente_id) y manda la hora
+    # real de la accion (fecha); la cola offline lo envia despues.
+    cliente_id: Optional[str] = Field(None, max_length=40)
+    fecha: Optional[datetime] = None
 
 
 class RegistroUpdate(BaseModel):
@@ -332,6 +337,7 @@ class RegistroUpdate(BaseModel):
     fecha_historial: Optional[List[Any]] = None
     tiempo_paro: Optional[float] = None
     tiempo_real: Optional[float] = None
+    fecha: Optional[datetime] = None     # hora real de la accion (cola offline)
 
 
 class RegistroOut(BaseModel):
@@ -355,6 +361,7 @@ class RegistroOut(BaseModel):
     tiempo_real: float = 0.0
     estado: str
     equipo: str = "Tractores"
+    cliente_id: Optional[str] = None
     revision_estado: str = "NO_REVISADO"
     revisado_por: Optional[str] = None
     revisado_por_nombre: Optional[str] = None
@@ -362,6 +369,21 @@ class RegistroOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+def _fecha_evento(fecha: datetime | None, minimo: datetime | None = None) -> datetime:
+    """Hora de una accion: la que manda el celular (hecha sin internet y enviada
+    despues por la cola) o la del servidor. Se acota: no en el futuro, no mas de
+    30 dias atras y nunca antes del evento anterior."""
+    ahora = ahora_ecuador()
+    f = ahora
+    if fecha is not None:
+        f = fecha.astimezone(TZ_ECUADOR).replace(tzinfo=None) if fecha.tzinfo else fecha
+        if f > ahora + timedelta(minutes=5) or f < ahora - timedelta(days=30):
+            f = ahora
+    if minimo is not None and f < minimo:
+        f = minimo
+    return f.replace(microsecond=0)
 
 
 def _no_revisado(r: Registro) -> None:
@@ -398,15 +420,20 @@ def crear_registro(registro: RegistroIn, db: Session = Depends(get_db), user: Us
         raise HTTPException(400, f"Estado inválido: {registro.estado}")
     if registro.equipo not in EQUIPOS:
         raise HTTPException(400, f"Equipo inválido: {registro.equipo}")
-    # Evitar duplicados por reintentos de la cola offline / doble clic.
-    if registro.estado == "Ejecutándose" and registro.usuario:
+    if registro.cliente_id:
+        # Reintento de la cola offline: el mismo registro ya llego
+        existente = db.scalar(select(Registro).where(Registro.cliente_id == registro.cliente_id))
+        if existente:
+            return existente
+    # Evitar duplicados por reintentos de la cola offline / doble clic (registros sin cliente_id).
+    if registro.estado == "Ejecutándose" and registro.usuario and not registro.cliente_id:
         existente = db.scalar(select(Registro).where(Registro.usuario == registro.usuario,
                                                      Registro.equipo == registro.equipo,
                                                      Registro.estado == "Ejecutándose")
                               .order_by(Registro.fecha_creacion.desc()))
         if existente:
             return existente
-    if registro.estado == "Pendiente" and registro.usuario:
+    if registro.estado == "Pendiente" and registro.usuario and not registro.cliente_id:
         hoy = ahora_ecuador().replace(hour=0, minute=0, second=0, microsecond=0)
         dup = db.scalar(select(Registro).where(
             Registro.usuario == registro.usuario, Registro.tractor == registro.tractor, Registro.equipo == registro.equipo,
@@ -417,7 +444,7 @@ def crear_registro(registro: RegistroIn, db: Session = Depends(get_db), user: Us
         if dup:
             return dup
 
-    ahora = ahora_ecuador()
+    ahora = _fecha_evento(registro.fecha)
     historial = ([{"accion": "inicio", "fecha": ahora.isoformat(), "ubicacion": registro.ubicacion}]
                  if registro.estado == "Ejecutándose" else [])
     id_check = registro.id_check
@@ -433,11 +460,19 @@ def crear_registro(registro: RegistroIn, db: Session = Depends(get_db), user: Us
         apero=registro.apero, lote=registro.lote, hacienda=registro.hacienda, orden_cultivo=registro.orden_cultivo,
         tipo=registro.tipo, usuario=registro.usuario, ubicacion=registro.ubicacion, id_check=id_check,
         id_actividad=act.id if act else None, id_tractorista=user.id_tractorista,
-        estado=registro.estado, equipo=registro.equipo, fecha_historial=historial, tiempo_paro=0.0, tiempo_real=0.0)
+        estado=registro.estado, equipo=registro.equipo, cliente_id=registro.cliente_id,
+        fecha_historial=historial, tiempo_paro=0.0, tiempo_real=0.0)
     db.add(nuevo)
     if act:
         act.cantidad = (act.cantidad or 0) + 1
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:          # dos envios del mismo cliente_id a la vez
+        db.rollback()
+        existente = db.scalar(select(Registro).where(Registro.cliente_id == registro.cliente_id))
+        if existente:
+            return existente
+        raise
     db.refresh(nuevo)
     return nuevo
 
@@ -476,15 +511,34 @@ def editar_registro(registro_id: int, registro: RegistroUpdate, db: Session = De
     r = db.get(Registro, registro_id)
     if not r:
         raise HTTPException(404, "Registro no encontrado")
+    return _editar(db, r, registro)
+
+
+@router.put("/registros/cliente/{cliente_id}", response_model=RegistroOut)
+def editar_registro_cliente(cliente_id: str, registro: RegistroUpdate, db: Session = Depends(get_db),
+                            _: Usuario = Depends(_kiosko)):
+    """Igual que PUT /registros/{id} pero con el id que genero el celular (el
+    registro pudo crearse sin internet y aun no conocer su id del servidor)."""
+    r = db.scalar(select(Registro).where(Registro.cliente_id == cliente_id))
+    if not r:
+        raise HTTPException(404, "Registro no encontrado")
+    return _editar(db, r, registro)
+
+
+def _editar(db: Session, r: Registro, registro: RegistroUpdate) -> Registro:
     if registro.estado is not None and registro.estado not in ESTADOS_REGISTRO:
         raise HTTPException(400, f"Estado inválido: {registro.estado}")
     # Idempotencia: reintento de la cola offline de un cambio ya aplicado.
     if registro.estado is not None and registro.estado == r.estado:
         return r
+    # Una accion atrasada de la cola offline no reabre una actividad ya finalizada
+    if r.estado == "Finalizado" and registro.estado is not None and registro.estado != "Finalizado":
+        return r
     _no_revisado(r)
 
-    ahora = ahora_ecuador()
     historial = list(r.fecha_historial or [])
+    ultimo =datetime.fromisoformat(historial[-1]["fecha"]) if historial else None
+    ahora = _fecha_evento(registro.fecha, ultimo)
     if registro.estado is not None:
         ub = registro.ubicacion
         if registro.estado == "Pausado":
@@ -513,11 +567,21 @@ def editar_registro(registro_id: int, registro: RegistroUpdate, db: Session = De
     return r
 
 
+@router.delete("/registros/cliente/{cliente_id}")
+def eliminar_registro_cliente(cliente_id: str, db: Session = Depends(get_db), _: Usuario = Depends(_kiosko)):
+    r = db.scalar(select(Registro).where(Registro.cliente_id == cliente_id))
+    if not r:
+        raise HTTPException(404, "Registro no encontrado")
+    return eliminar_registro(r.id, db, _)
+
+
 @router.delete("/registros/{registro_id}")
 def eliminar_registro(registro_id: int, db: Session = Depends(get_db), _: Usuario = Depends(_kiosko)):
     r = db.get(Registro, registro_id)
     if not r:
         raise HTTPException(404, "Registro no encontrado")
+    if r.estado == "Eliminado":         # reintento de la cola offline
+        return {"message": "Registro eliminado"}
     _no_revisado(r)
     r.estado = "Eliminado"           # borrado logico
     db.commit()

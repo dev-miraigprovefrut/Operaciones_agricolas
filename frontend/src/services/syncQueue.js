@@ -113,7 +113,7 @@ async function markSynced(id) {
 /**
  * Marcar un item como fallido
  */
-async function markFailed(id, error) {
+async function markFailed(id, error, contar = true) {
   const db = await openDB()
   return new Promise((resolve, reject) => {
     const tx = db.transaction(STORE_QUEUE, 'readwrite')
@@ -122,7 +122,7 @@ async function markFailed(id, error) {
     req.onsuccess = () => {
       const item = req.result
       if (item) {
-        item.retries += 1
+        if (contar) item.retries += 1     // sin red no cuenta: se reintenta hasta que haya conexion
         item.lastError = error
         if (item.retries >= 5) {
           item.status = 'failed'
@@ -219,14 +219,31 @@ export async function retryFailedItems() {
  * Procesar la cola - enviar todos los pendientes al servidor
  * @returns {{ synced: number, failed: number }}
  */
-export async function processQueue() {
+// Una sola vuelta a la vez (la bitacora y el indicador offline la disparan al
+// volver la señal): dos vueltas en paralelo mandaban todo dos veces y en desorden.
+let vueltaEnCurso = null
+export function processQueue() {
+  if (!vueltaEnCurso) vueltaEnCurso = procesarCola().finally(() => { vueltaEnCurso = null })
+  return vueltaEnCurso
+}
+
+async function procesarCola() {
   const pending = await getPendingItems()
   if (pending.length === 0) return { synced: 0, failed: 0 }
 
   let synced = 0
   let failed = 0
+  // Acciones de un mismo registro (cliente_id) van en orden: si una falla, las
+  // siguientes de ese registro esperan a la proxima vuelta (no gastan reintentos).
+  const dependencia = (item) => {
+    const m = String(item.url || '').match(/\/cliente\/([^/?]+)/)
+    return m ? decodeURIComponent(m[1]) : (item.body?.cliente_id || item.body?.cliente_registro || null)
+  }
+  const bloqueados = new Set()
 
   for (const item of pending) {
+    const dep = dependencia(item)
+    if (dep && bloqueados.has(dep)) continue
     try {
       // La sesion va en la cookie (services/sesion.js agrega credentials y
       // la renueva con el HUB si vencio), asi el reintento usa la vigente.
@@ -252,12 +269,15 @@ export async function processQueue() {
         const msg = res.status === 401
           ? 'Sesión expirada: vuelve a iniciar sesión para reintentar'
           : `HTTP ${res.status}`
-        await markFailed(item.id, msg)
+        // 401 (sesion) no cuenta como intento: se reintenta al volver a entrar
+        await markFailed(item.id, msg, res.status !== 401)
         failed++
+        if (dep) bloqueados.add(dep)
       }
     } catch (err) {
-      await markFailed(item.id, err.message)
+      await markFailed(item.id, err.message, false)
       failed++
+      if (dep) bloqueados.add(dep)
       // Si falla por red, no seguir intentando los demás
       if (err.name === 'AbortError' || !navigator.onLine) break
     }
@@ -297,6 +317,17 @@ export async function getCachedData(key) {
     req.onsuccess = () => resolve(req.result ? req.result.data : null)
     req.onerror = () => reject(req.error)
   })
+}
+
+/** fetch con tiempo limite (con señal debil el servidor puede no responder nunca) */
+export async function fetchConTimeout(url, ms = 6000, opciones = {}) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), ms)
+  try {
+    return await fetch(url, { ...opciones, signal: controller.signal })
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 /**

@@ -138,6 +138,7 @@ class Registro(_Empresa, Base):
     tiempo_real = Column(Float, nullable=False, default=0.0)
     estado = Column(String(20), nullable=False, default="Pendiente")
     equipo = Column(String(20), nullable=False, default="Tractores")   # Tractores | Drones
+    cliente_id = Column(String(40), unique=True)   # id que genera el celular (trabajo sin internet)
     # Revision (aprobacion) de horas: REVISADO = bloqueado para cambios
     revision_estado = Column(String(15), nullable=False, default="NO_REVISADO")
     revisado_por = Column(String(150))

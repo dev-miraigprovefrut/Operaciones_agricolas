@@ -39,6 +39,15 @@
             const habiaControlador = !!navigator.serviceWorker.controller
             navigator.serviceWorker.register('/sw.js').then(reg => {
               setInterval(() => reg.update(), 60000)
+              // Guardar YA los archivos de esta pagina (JS, CSS, iconos) para abrir
+              // SIN INTERNET desde la primera vez (el SW solo guarda lo que pasa por el
+              // despues de instalarse; esta primera carga fue antes).
+              navigator.serviceWorker.ready.then(() => caches.open('opagricola-v5')).then(cache => {
+                const urls = performance.getEntriesByType('resource').map(e => e.name)
+                  .concat([location.origin + '/', location.origin + '/index.html'])
+                  .filter(u => u.startsWith(location.origin) && !u.includes('/api/'))
+                return Promise.all([...new Set(urls)].map(u => cache.add(u).catch(() => null)))
+              }).catch(() => {})
               reg.addEventListener('updatefound', () => {
                 const newSW = reg.installing
                 if (!newSW || !habiaControlador) return

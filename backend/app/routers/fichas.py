@@ -178,6 +178,7 @@ class ProductoFin(BaseModel):
 
 class FinalizarIn(BaseModel):
     id_registro: Optional[int] = None
+    cliente_registro: Optional[str] = None      # registro creado sin internet (id del celular)
     num_bombas: float = Field(ge=0, le=999)
     productos: List[ProductoFin] = []
 
@@ -191,6 +192,8 @@ def finalizar(ficha_id: int, body: FinalizarIn, db: Session = Depends(get_db), u
         return _out(f)                                      # reintento de la cola offline: ya quedo
     # Horas: las de la actividad de la bitacora (inicio y fin reales)
     reg = db.get(Registro, body.id_registro or f.id_registro) if (body.id_registro or f.id_registro) else None
+    if reg is None and body.cliente_registro:
+        reg = db.scalar(select(Registro).where(Registro.cliente_id == body.cliente_registro))
     if reg is None:
         reg = db.scalar(select(Registro).where(Registro.tractor == f.tractor, Registro.estado == "Finalizado",
                                                Registro.actividad.ilike("%FITOSANITARI%"))
