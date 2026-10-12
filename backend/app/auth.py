@@ -71,7 +71,8 @@ def _validar_hub(token: str) -> dict:
     if not settings.SECRET_KEY:
         raise HTTPException(500, "SECRET_KEY no configurada")
     try:
-        p = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], leeway=30)
+        p = jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM], leeway=30,
+                       options={"require": ["exp"]})   # sin exp no vencia nunca
     except jwt.ExpiredSignatureError:
         raise HTTPException(401, "Sesión expirada")
     except jwt.InvalidTokenError:
