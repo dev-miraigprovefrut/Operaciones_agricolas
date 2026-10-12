@@ -5,6 +5,7 @@ import threading
 import httpx
 
 from ..config import settings
+from . import servicio   # token de servicio: Notificaciones solo acepta avisos de backends
 
 logger = logging.getLogger(__name__)
 SOURCE_APP = "operagricola"
@@ -18,7 +19,7 @@ def _enviar(destinatarios: list[str], titulo: str, mensaje: str, tipo: str, meta
             if metadata:
                 body["metadata"] = metadata
             try:
-                r = c.post(url, json=body)
+                r = c.post(url, json=body, headers={"Authorization": f"Bearer {servicio.token()}"})
                 logger.info("[NOTIFY] %s: %s", user_id, r.status_code)
             except httpx.HTTPError as e:
                 logger.error("[NOTIFY] %s: %s", user_id, e)
