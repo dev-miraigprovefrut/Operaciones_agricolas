@@ -796,17 +796,6 @@ function ReportesCosecha() {
               const grupos = Array.from(gruposMap.values())
 
               return grupos.map((grupoFichas, gIdx) => {
-                const filasPorFicha = grupoFichas.map(f => {
-                  const prods = f.productos || []
-                  let n = Math.max(prods.length, 1)
-                  if (f.correccion_id) {
-                    const fichaFalla = fichas.find(x => x.id === f.correccion_id)
-                    if (fichaFalla?.observacion_falla) n += 1
-                  }
-                  if (f.estado === 'Falla' && f.observacion_falla) n += 1
-                  return n
-                })
-                const totalFilasGrupo = filasPorFicha.reduce((a, b) => a + b, 0)
                 const fondoGrupo = grupoFichas.length > 1 && gIdx % 2 === 1 ? 'var(--color-bg-light)' : undefined
 
                 return grupoFichas.map((f, fi) => {
@@ -815,27 +804,26 @@ function ReportesCosecha() {
                   // Placa, comunes, y el Estado de una ficha con varios
                   // productos) para que se vean centradas en medio de todas las
                   // filas de producto que abarcan, en vez de pegadas arriba.
-                  const celdasComunes = fi === 0 && (
+                  // Cada linea (producto) muestra TODOS sus datos: antes Fecha, Placa,
+                  // chofer, dueño, proyecto, supervisor y estado iban en celdas
+                  // combinadas y varias fichas parecian una sola (generaba confusion).
+                  const celdasComunes = (
                     <>
-                      <td className="col-ocultar-movil" rowSpan={totalFilasGrupo} style={{verticalAlign: 'middle'}}>{formatNombre(f.nombre_chofer)}</td>
-                      <td className="col-ocultar-movil" rowSpan={totalFilasGrupo} style={{verticalAlign: 'middle'}}>{f.propietario || '-'}</td>
-                      <td className="col-ocultar-movil" rowSpan={totalFilasGrupo} style={{verticalAlign: 'middle'}}>{resolverProyecto(f) || '-'}</td>
-                      <td className="col-ocultar-movil" rowSpan={totalFilasGrupo} style={{verticalAlign: 'middle'}}>{f.supervisor_nombre || (f.productos || [])[0]?.responsable || '-'}</td>
+                      <td className="col-ocultar-movil">{formatNombre(f.nombre_chofer)}</td>
+                      <td className="col-ocultar-movil">{f.propietario || '-'}</td>
+                      <td className="col-ocultar-movil">{resolverProyecto(f) || '-'}</td>
+                      <td className="col-ocultar-movil">{f.supervisor_nombre || (f.productos || [])[0]?.responsable || '-'}</td>
                     </>
                   )
                   // La Placa no tiene className col-ocultar-movil (debe verse
                   // siempre) -- se separa de las demas celdas comunes.
-                  const celdaPlaca = fi === 0 && (
-                    <td rowSpan={totalFilasGrupo} style={{verticalAlign: 'middle'}}><strong>{f.placa || '-'}</strong></td>
-                  )
+                  const celdaPlaca = <td><strong>{f.placa || '-'}</strong></td>
                   // La Fecha es la misma para todo el grupo (la clave de
                   // agrupacion ya incluye el dia), asi que tambien se
                   // combina en una sola celda -- antes cada ficha suelta
                   // del grupo agregaba su propia celda de Fecha ademas de
                   // la del grupo, desalineando todas las columnas siguientes.
-                  const celdaFecha = fi === 0 && (
-                    <td rowSpan={totalFilasGrupo} style={{whiteSpace:'nowrap', verticalAlign: 'middle'}}>{f.fecha_creacion ? new Date(f.fecha_creacion).toLocaleDateString('es-EC', {day:'2-digit', month:'2-digit', year:'numeric'}) : '-'}</td>
-                  )
+                  const celdaFecha = <td style={{whiteSpace:'nowrap'}}>{f.fecha_creacion ? new Date(f.fecha_creacion).toLocaleDateString('es-EC', {day:'2-digit', month:'2-digit', year:'numeric'}) : '-'}</td>
 
                   if (prods.length <= 1) {
                     const p = prods[0] || {}
@@ -886,19 +874,19 @@ function ReportesCosecha() {
                   const filasMultiProd = prods.map((p, idx) => (
                     <tr key={`${f.id}-${idx}`} onClick={() => handleClickFicha(f)}
                       onMouseEnter={() => setHoverFichaId(f.id)} onMouseLeave={() => setHoverFichaId(null)}
-                      style={{cursor: f.estado === 'Falla' || f.estado === 'Corregida' ? 'default' : 'pointer', opacity: f.estado === 'Falla' ? 0.6 : 1, ...(idx > 0 ? {borderTop: 'none'} : {}), backgroundColor: hoverFichaId === f.id ? 'var(--color-bg-light, #f5f5f7)' : fondoGrupo}}>
+                      style={{cursor: f.estado === 'Falla' || f.estado === 'Corregida' ? 'default' : 'pointer', opacity: f.estado === 'Falla' ? 0.6 : 1, backgroundColor: hoverFichaId === f.id ? 'var(--color-bg-light, #f5f5f7)' : fondoGrupo}}>
 
-                      {idx === 0 && celdaFecha}
+                      {celdaFecha}
                       <td style={{whiteSpace:'nowrap', fontSize:'0.75rem', color:'#7b1fa2', fontWeight:600}}>{p.num_ficha || '-'}</td>
-                      {idx === 0 && celdaPlaca}
-                      {idx === 0 && celdasComunes}
+                      {celdaPlaca}
+                      {celdasComunes}
                       <td className="col-ocultar-movil">{p.producto || '-'}</td>
                       <td>{p.lote || '-'}</td>
                       <td className="col-ocultar-movil">{p.variedad || '-'}</td>
                       <td style={{textAlign: 'center'}}>{p.cantidad || 0}</td>
                       <td style={{textAlign: 'center'}}>{p.peso || '-'}</td>
-                      {idx === 0 && (
-                        <td rowSpan={prods.length} style={{verticalAlign: 'middle'}}>
+                      {(
+                        <td>
                           <span className="col-ocultar-movil" style={{background: badgeColor(f.estado), color: 'white', padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem'}}>{f.estado}</span>
                           <span className="estado-badge-punto" title={f.estado} style={{background: badgeColor(f.estado), width: '12px', height: '12px', borderRadius: '50%', display: 'none'}}></span>
                           {f.estado === 'Falla' && f.observacion_falla && <div style={{fontSize: '0.65rem', color: 'var(--color-text-secondary)', marginTop: '3px', lineHeight: 1.2}} title={f.observacion_falla}>{f.observacion_falla.length > 60 ? f.observacion_falla.substring(0, 60) + '...' : f.observacion_falla}</div>}
@@ -907,10 +895,6 @@ function ReportesCosecha() {
                       )}
                     </tr>
                   ))
-                  // El rowSpan de celdaFecha/celdaPlaca/celdasComunes (totalFilasGrupo)
-                  // ya cuenta esta fila de detalle si aplica -- sin ella, el rowSpan
-                  // se pasa de largo y se come columnas de la SIGUIENTE ficha en la
-                  // tabla, desalineandola por completo (bug real visto en produccion).
                   if (f.correccion_id) {
                     const fichaFalla = fichas.find(x => x.id === f.correccion_id)
                     if (fichaFalla?.observacion_falla) {
