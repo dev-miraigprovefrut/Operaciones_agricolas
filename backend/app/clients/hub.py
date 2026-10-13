@@ -10,6 +10,7 @@ import time
 import httpx
 
 from ..config import settings
+from . import servicio
 
 logger = logging.getLogger(__name__)
 _client = httpx.Client(timeout=settings.TIMEOUT_SERVICIOS)
@@ -88,7 +89,9 @@ def usuarios_lote(usuarios: list[str], token: str, incluir_cargo: bool = False) 
             faltan.append(u)
     for i in range(0, len(faltan), 500):
         try:
-            data = _req("POST", "/usuarios/lote", token,
+            # Token de SERVICIO: el cache de nombres es de todos y el HUB a un token
+            # de usuario solo le devuelve los de sus empresas.
+            data = _req("POST", "/usuarios/lote", servicio.token(),
                         json={"usuarios": faltan[i:i + 500], "incluir_cargo": incluir_cargo})
         except HubError as e:
             logger.warning("No se pudo leer el lote de usuarios: %s", e.detalle)
