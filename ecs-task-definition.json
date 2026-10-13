@@ -1,7 +1,9 @@
 {
   "family": "OperacionesAgricolas_master",
   "networkMode": "awsvpc",
-  "requiresCompatibilities": ["FARGATE"],
+  "requiresCompatibilities": [
+    "FARGATE"
+  ],
   "cpu": "512",
   "memory": "1024",
   "executionRoleArn": "arn:aws:iam::892302937756:role/ecsTaskExecutionRole",
@@ -9,47 +11,155 @@
     {
       "name": "backend",
       "image": "892302937756.dkr.ecr.us-east-1.amazonaws.com/operacionesagricolas_master:latest",
-      "portMappings": [{"containerPort": 8000, "protocol": "tcp"}],
+      "portMappings": [
+        {
+          "containerPort": 8000,
+          "protocol": "tcp"
+        }
+      ],
       "environment": [
-        {"name": "DB_PORT", "value": "5432"},
-        {"name": "DB_NAME", "value": "mirai_core"},
-        {"name": "DB_SCHEMA", "value": "operaciones_agricolas"},
-        {"name": "DB_USER", "value": "adminmirai"},
-        {"name": "NUMERO_EMPRESA", "value": "222"},
-        {"name": "HUB_API_URL", "value": "https://hubbk.miraigprovefrut.com/api"},
-        {"name": "API_PERSONAS_URL", "value": "https://personasbk.miraigprovefrut.com"},
-        {"name": "API_EMPRESAS_URL", "value": "https://empresasbk.miraigprovefrut.com"},
-        {"name": "NOTIFY_URL", "value": "https://notify.miraigprovefrut.com"},
-        {"name": "MANTENIMIENTO_API_URL", "value": "https://manntgbk.miraigprovefrut.com"},
-        {"name": "AWS_REGION", "value": "us-east-1"},
-        {"name": "S3_BUCKET", "value": "operacionesagricolas"},
-        {"name": "DDB_CATALOGO_TRACTORES", "value": "CatalogoTractores"},
-        {"name": "DDB_CATALOGO_APEROS", "value": "CatalogoAperos"},
-        {"name": "POSTGRES_DB", "value": "mantenimiento_nintanga"},
-        {"name": "POSTGRES_PORT", "value": "5432"},
-        {"name": "POSTGRES_USER", "value": "postgres"},
-        {"name": "POSTGRES_SSLMODE", "value": "require"},
-        {"name": "DB_INFORMIX_HOST", "value": "172.20.4.51"},
-        {"name": "DB_INFORMIX_PORT", "value": "1526"},
-        {"name": "DB_INFORMIX_SERVER", "value": "ol_planta"},
-        {"name": "DB_INFORMIX_NAME", "value": "lasso"},
-        {"name": "SYNC_INFORMIX", "value": "true"},
-        {"name": "KIOSKO_SIN_SESION", "value": "true"},
-        {"name": "COOKIE_SECURE", "value": "true"},
-        {"name": "CORS_ORIGINS", "value": "https://agricola.miraigprovefrut.com,https://operacionesa.miraigprovefrut.com,https://tractoristas.miraigprovefrut.com"},
-        {"name": "DEBUG", "value": "False"}
+        {
+          "name": "DB_PORT",
+          "value": "5432"
+        },
+        {
+          "name": "DB_NAME",
+          "value": "mirai_core"
+        },
+        {
+          "name": "DB_SCHEMA",
+          "value": "operaciones_agricolas"
+        },
+        {
+          "name": "DB_USER",
+          "value": "adminmirai"
+        },
+        {
+          "name": "NUMERO_EMPRESA",
+          "value": "222"
+        },
+        {
+          "name": "HUB_API_URL",
+          "value": "https://hubbk.miraigprovefrut.com/api"
+        },
+        {
+          "name": "API_PERSONAS_URL",
+          "value": "https://personasbk.miraigprovefrut.com"
+        },
+        {
+          "name": "API_EMPRESAS_URL",
+          "value": "https://empresasbk.miraigprovefrut.com"
+        },
+        {
+          "name": "NOTIFY_URL",
+          "value": "https://notify.miraigprovefrut.com"
+        },
+        {
+          "name": "MANTENIMIENTO_API_URL",
+          "value": "https://manntgbk.miraigprovefrut.com"
+        },
+        {
+          "name": "AWS_REGION",
+          "value": "us-east-1"
+        },
+        {
+          "name": "S3_BUCKET",
+          "value": "operacionesagricolas"
+        },
+        {
+          "name": "DDB_CATALOGO_TRACTORES",
+          "value": "CatalogoTractores"
+        },
+        {
+          "name": "DDB_CATALOGO_APEROS",
+          "value": "CatalogoAperos"
+        },
+        {
+          "name": "POSTGRES_DB",
+          "value": "mantenimiento_nintanga"
+        },
+        {
+          "name": "POSTGRES_PORT",
+          "value": "5432"
+        },
+        {
+          "name": "POSTGRES_USER",
+          "value": "postgres"
+        },
+        {
+          "name": "POSTGRES_SSLMODE",
+          "value": "require"
+        },
+        {
+          "name": "DB_INFORMIX_HOST",
+          "value": "172.20.4.51"
+        },
+        {
+          "name": "DB_INFORMIX_PORT",
+          "value": "1526"
+        },
+        {
+          "name": "DB_INFORMIX_SERVER",
+          "value": "ol_planta"
+        },
+        {
+          "name": "DB_INFORMIX_NAME",
+          "value": "lasso"
+        },
+        {
+          "name": "SYNC_INFORMIX",
+          "value": "true"
+        },
+        {
+          "name": "KIOSKO_SIN_SESION",
+          "value": "true"
+        },
+        {
+          "name": "COOKIE_SECURE",
+          "value": "true"
+        },
+        {
+          "name": "CORS_ORIGINS",
+          "value": "https://agricola.miraigprovefrut.com,https://operacionesa.miraigprovefrut.com,https://tractoristas.miraigprovefrut.com"
+        },
+        {
+          "name": "DEBUG",
+          "value": "False"
+        }
       ],
       "secrets": [
-        {"name": "DB_HOST", "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:mirai-core/db:host::"},
-        {"name": "DB_PASSWORD", "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:mirai-core/db:password::"},
-        {"name": "SECRET_KEY", "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:hub/django/secret-key-R7IfKM"},
-        {"name": "TRACTORISTA_SECRET_KEY", "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:operaciones-agricolas/app-9ZoieL:TRACTORISTA_SECRET_KEY::"},
-        {"name": "DB_INFORMIX_USER", "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:operaciones-agricolas/app-9ZoieL:DB_INFORMIX_USER::"},
-        {"name": "DB_INFORMIX_PASSWORD", "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:operaciones-agricolas/app-9ZoieL:DB_INFORMIX_PASSWORD::"},
-        {"name": "POSTGRES_HOST", "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:mantenimiento/postgres-credentials-3lJAMD:host::"},
-        {"name": "POSTGRES_PASSWORD", "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:mantenimiento/postgres-credentials-3lJAMD:password::"},
-        {"name": "AWS_ACCESS_KEY_ID", "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:mantenimiento/aws-credentials-zYjrKr:AWS_ACCESS_KEY_ID::"},
-        {"name": "AWS_SECRET_ACCESS_KEY", "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:mantenimiento/aws-credentials-zYjrKr:AWS_SECRET_ACCESS_KEY::"}
+        {
+          "name": "DB_HOST",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:mirai-core/db:host::"
+        },
+        {
+          "name": "DB_PASSWORD",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:mirai-core/db:password::"
+        },
+        {
+          "name": "SECRET_KEY",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:hub/django/secret-key-R7IfKM"
+        },
+        {
+          "name": "TRACTORISTA_SECRET_KEY",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:operaciones-agricolas/app-9ZoieL:TRACTORISTA_SECRET_KEY::"
+        },
+        {
+          "name": "DB_INFORMIX_USER",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:operaciones-agricolas/app-9ZoieL:DB_INFORMIX_USER::"
+        },
+        {
+          "name": "DB_INFORMIX_PASSWORD",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:operaciones-agricolas/app-9ZoieL:DB_INFORMIX_PASSWORD::"
+        },
+        {
+          "name": "POSTGRES_HOST",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:mantenimiento/postgres-credentials-3lJAMD:host::"
+        },
+        {
+          "name": "POSTGRES_PASSWORD",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:mantenimiento/postgres-credentials-3lJAMD:password::"
+        }
       ],
       "logConfiguration": {
         "logDriver": "awslogs",
@@ -60,12 +170,16 @@
         }
       },
       "healthCheck": {
-        "command": ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"],
+        "command": [
+          "CMD-SHELL",
+          "curl -f http://localhost:8000/health || exit 1"
+        ],
         "interval": 30,
         "timeout": 5,
         "retries": 3,
         "startPeriod": 30
       }
     }
-  ]
+  ],
+  "taskRoleArn": "arn:aws:iam::892302937756:role/operaciones-task-role"
 }
