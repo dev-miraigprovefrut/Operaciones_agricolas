@@ -217,7 +217,9 @@ def listar_transportes(request: Request, db: Session = Depends(get_db), user: Us
                COALESCE(pr.nombre, NULLIF(TRIM(c.centro_costos), ''), NULLIF(TRIM(li.proyecto), ''), li.hacienda)
                    AS proyecto_nombre,
                c.id_cosecha AS producto_id, c.producto, c.lote, c.variedad, c.cantidad, c.orden_cultivo,
-               c.centro_costos, c.ubicacion, c.responsable, c.peso, c.num_ficha, c.estado AS estado_producto,
+               c.centro_costos, c.ubicacion, c.responsable,
+               COALESCE(pz.peso_neto, c.peso) AS peso, COALESCE(pz.num_ficha, c.num_ficha) AS num_ficha,
+               c.estado AS estado_producto,
                c.numeracion AS prod_numeracion,
                t.seg_chaleco, t.seg_cofia, t.seg_casco, t.seg_calzado_adecuado, t.seg_limpieza_bines,
                t.seg_materiales_extranos, t.seg_saran, t.seg_comentario, t.seg_observaciones, t.seg_foto_url
@@ -225,6 +227,7 @@ def listar_transportes(request: Request, db: Session = Depends(get_db), user: Us
         LEFT JOIN supervisor s ON s.id_supervisor = t.id_supervisor
         LEFT JOIN proyecto pr ON pr.id_proyecto = s.id_proyecto
         LEFT JOIN cosecha c ON c.id_cosecha_transporte = t.id_cosecha_transporte
+        LEFT JOIN pesaje pz ON pz.id_cosecha = c.id_cosecha AND pz.estado = 'ACTIVO'   -- peso del sistema OT
         LEFT JOIN (SELECT DISTINCT ON (ocult_cod_ocult) ocult_cod_ocult, proyecto, hacienda
                    FROM lote_informix ORDER BY ocult_cod_ocult) li ON li.ocult_cod_ocult = c.orden_cultivo
         WHERE 1=1 {filtro}
@@ -309,9 +312,18 @@ def guardar_productos(data: ProductosIn, db: Session = Depends(get_db), _: Usuar
 
 @router.get("/cosecha-productos/{id_transporte}")
 def ver_productos(id_transporte: int, db: Session = Depends(get_db), _: Usuario = Depends(LEER)):
-    return [dict(r) for r in db.execute(text(
+    filas = [dict(r) for r in db.execute(text(
         f"SELECT {_PRODUCTO_SQL} FROM cosecha WHERE id_cosecha_transporte = :id ORDER BY id_cosecha"),
         {"id": id_transporte}).mappings()]
+    # Peso del sistema OT (tabla pesaje): manda sobre el de la ficha, que no se toca
+    ot = {r[0]: r for r in db.execute(text("""SELECT pz.id_cosecha, pz.peso_neto, pz.num_ficha FROM pesaje pz
+        JOIN cosecha c ON c.id_cosecha = pz.id_cosecha WHERE c.id_cosecha_transporte = :id AND pz.estado = 'ACTIVO'"""),
+        {"id": id_transporte})}
+    for f in filas:
+        if f["id"] in ot:
+            f["peso"] = f["peso_neto"] = float(ot[f["id"]][1])
+            f["num_ficha"] = ot[f["id"]][2]
+    return filas
 
 
 @router.delete("/cosecha-productos/item/{item_id}")

@@ -110,6 +110,9 @@ def main(solo_transp_id=None, incluir_activo_abandonado=False) -> dict:
                    p.id_cosecha, p.orden_cultivo, p.num_ficha, p.lote
             FROM cosecha_transporte t JOIN cosecha p ON p.id_cosecha_transporte = t.id_cosecha_transporte
             WHERE t.estado = ANY(%s) {filtro_id} {filtro_edad}
+              -- camiones con pesos del sistema OT (tabla pesaje): los maneja OT, no Informix
+              AND NOT EXISTS (SELECT 1 FROM pesaje pz JOIN cosecha c2 ON c2.id_cosecha = pz.id_cosecha
+                              WHERE c2.id_cosecha_transporte = t.id_cosecha_transporte AND pz.estado = 'ACTIVO')
             ORDER BY t.fecha_creacion, t.id_cosecha_transporte""", params)
         modulo = cur.fetchall()
         if not modulo:
@@ -156,6 +159,8 @@ def main(solo_transp_id=None, incluir_activo_abandonado=False) -> dict:
             SELECT t.id_cosecha_transporte, t.placa, p.num_ficha, t.hora_ingreso
             FROM cosecha_transporte t JOIN cosecha p ON p.id_cosecha_transporte = t.id_cosecha_transporte
             WHERE t.estado = ANY(%s) {filtro_id} {filtro_edad}
+              AND NOT EXISTS (SELECT 1 FROM pesaje pz JOIN cosecha c2 ON c2.id_cosecha = pz.id_cosecha
+                              WHERE c2.id_cosecha_transporte = t.id_cosecha_transporte AND pz.estado = 'ACTIVO')
               AND p.num_ficha IS NOT NULL AND p.num_ficha != ''
               AND NOT EXISTS (SELECT 1 FROM cosecha p2 WHERE p2.id_cosecha_transporte = t.id_cosecha_transporte
                               AND (p2.num_ficha IS NULL OR p2.num_ficha = ''))

@@ -405,3 +405,52 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_registro_cliente_id ON registro (cliente_id
 -- Fichas de cosecha creadas sin internet (id que genera el celular)
 ALTER TABLE cosecha_transporte ADD COLUMN IF NOT EXISTS cliente_id VARCHAR(40);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_cosecha_transporte_cliente_id ON cosecha_transporte (cliente_id) WHERE cliente_id IS NOT NULL;
+
+-- ------------------------------------------------- pesaje (sistema de bascula OT)
+-- El responsable de bascula (usuario MirAI con la pestana pesaje_cosecha) sube
+-- el peso de CADA producto (ficha COS). La ficha de cosecha NO se modifica: el
+-- peso vive aqui; solo el estado del camion pasa a Recibido (pesaje_recepcion).
+CREATE TABLE IF NOT EXISTS pesaje (
+    id_pesaje          BIGSERIAL     PRIMARY KEY,
+    tenant_id          BIGINT        NOT NULL DEFAULT 1,
+    numero_empresa     VARCHAR(10)   NOT NULL DEFAULT '222',
+    id_cosecha         BIGINT        NOT NULL REFERENCES cosecha (id_cosecha) ON DELETE CASCADE,
+    numeracion         VARCHAR(30)   NOT NULL,          -- COS-...
+    num_ficha          VARCHAR(50)   NOT NULL,          -- ficha/ticket del sistema OT
+    peso_bruto         NUMERIC(12,2),
+    tara               NUMERIC(12,2),
+    peso_neto          NUMERIC(12,2) NOT NULL,
+    fecha_hora         TIMESTAMP     NOT NULL,
+    pesado_por         VARCHAR(150)  NOT NULL,          -- usuario MirAI
+    pesado_por_nombre  VARCHAR(200),
+    estado             VARCHAR(10)   NOT NULL DEFAULT 'ACTIVO',   -- ACTIVO / ELIMINADO
+    modificado_por     VARCHAR(150),
+    fecha_registro     TIMESTAMP     NOT NULL DEFAULT now(),
+    fecha_modificacion TIMESTAMP,
+    CONSTRAINT ck_pesaje_estado CHECK (estado IN ('ACTIVO', 'ELIMINADO'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_pesaje_activo ON pesaje (id_cosecha) WHERE estado = 'ACTIVO';
+CREATE INDEX IF NOT EXISTS ix_pesaje_numeracion ON pesaje (numeracion);
+
+-- Quien subio, edito o elimino cada peso (antes -> despues)
+CREATE TABLE IF NOT EXISTS pesaje_historial (
+    id_pesaje_historial BIGSERIAL    PRIMARY KEY,
+    id_pesaje           BIGINT       NOT NULL REFERENCES pesaje (id_pesaje) ON DELETE CASCADE,
+    accion              VARCHAR(10)  NOT NULL,          -- CREADO / EDITADO / ELIMINADO
+    antes               JSONB,
+    despues             JSONB,
+    usuario             VARCHAR(150) NOT NULL,
+    usuario_nombre      VARCHAR(200),
+    fecha               TIMESTAMP    NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_pesaje_historial ON pesaje_historial (id_pesaje);
+
+-- Camion marcado Recibido por OT (estado anterior, para deshacerlo si se elimina un peso)
+CREATE TABLE IF NOT EXISTS pesaje_recepcion (
+    id_cosecha_transporte BIGINT       PRIMARY KEY REFERENCES cosecha_transporte (id_cosecha_transporte) ON DELETE CASCADE,
+    estado_anterior       VARCHAR(20)  NOT NULL,
+    recibido_por          VARCHAR(150) NOT NULL,
+    recibido_por_nombre   VARCHAR(200),
+    fecha_hora            TIMESTAMP    NOT NULL,
+    activo                BOOLEAN      NOT NULL DEFAULT TRUE
+);

@@ -12,6 +12,7 @@ const MENU_PERMISOS = [
       { key: 'registrar_actividades', label: 'Bitácora Tractor', icon: 'bx bx-task' },
       { key: 'bitacora_dron', label: 'Bitácora Dron', icon: 'bx bx-paper-plane' },
       { key: 'registrar_cosecha', label: 'Cosecha', icon: 'bx bx-leaf' },
+      { key: 'pesaje_cosecha', label: 'Pesaje (sistema OT)', icon: 'bx bx-dumbbell' },
     ]
   },
   {
