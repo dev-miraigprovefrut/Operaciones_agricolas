@@ -18,6 +18,10 @@ _TTL = 600
 _cache: dict[int, tuple[float, dict]] = {}
 _catalogo = {"ts": 0.0, "filas": []}
 
+# lote y catalogo se piden SIEMPRE con el token de SERVICIO: el cache es de todos
+# y Personas a un token de usuario solo le devuelve el personal de sus empresas
+# (sin fecha de nacimiento ni sexo). por_cedula sigue con el token del usuario.
+
 
 class PersonasError(Exception):
     def __init__(self, status: int, detalle: str):
@@ -66,7 +70,7 @@ def lote(ids: list[int], token: str | None = None) -> dict[int, dict]:
             faltan.append(i)
     for k in range(0, len(faltan), 1000):
         try:
-            data = _req("POST", "/personas/lote", token, json={"ids": faltan[k:k + 1000]}) or {}
+            data = _req("POST", "/personas/lote", servicio.token(), json={"ids": faltan[k:k + 1000]}) or {}
         except PersonasError as e:
             logger.warning("No se pudo leer el lote de personas: %s", e.detalle)
             break
@@ -81,7 +85,7 @@ def catalogo_empresa(token: str | None = None) -> list[dict]:
     if _catalogo["filas"] and time.monotonic() - _catalogo["ts"] < _TTL:
         return _catalogo["filas"]
     try:
-        data = _req("GET", "/personas/catalogo", token, params={"numero_empresa": settings.NUMERO_EMPRESA}) or {}
+        data = _req("GET", "/personas/catalogo", servicio.token(), params={"numero_empresa": settings.NUMERO_EMPRESA}) or {}
         _catalogo.update(ts=time.monotonic(), filas=data.get("empleados", []))
     except PersonasError as e:
         logger.warning("No se pudo leer el catalogo de personal: %s", e.detalle)
