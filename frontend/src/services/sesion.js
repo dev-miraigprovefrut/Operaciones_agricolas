@@ -117,7 +117,13 @@ export const HUB_URL = new URL(HUB_LOGIN_URL).origin
  */
 export function cerrarPestana(destino = HUB_URL) {
   window.close()
-  setTimeout(() => { window.location.href = destino }, 300)
+  // Si el navegador no deja cerrarla: el tractorista (kiosko) vuelve a su login;
+  // un usuario del HUB ve el aviso en la misma pestana (no se abre el HUB).
+  setTimeout(() => {
+    if (window.closed) return
+    if (destino && destino !== HUB_URL) window.location.href = destino
+    else mostrarSesionCerrada()
+  }, 300)
 }
 
 /** Cierra la sesion: la del tractorista en este modulo, o la del HUB (todo el ecosistema). */
@@ -130,4 +136,20 @@ export async function cerrarSesion() {
     }
   } catch { /* sin red: igual se limpia */ }
   limpiarDatosSesion()
+}
+
+/**
+ * Pantalla final cuando el navegador no permite cerrar la pestana (solo deja
+ * cerrar pestanas abiertas por script y sin navegacion interna). No se abre el
+ * HUB: el usuario cierra la pestana a mano.
+ */
+export function mostrarSesionCerrada() {
+  document.title = 'Sesión finalizada'
+  document.body.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:center;height:100vh;background:#1a1a1a;color:#fff;
+                font-family:sans-serif;flex-direction:column;gap:1rem;text-align:center;padding:1rem;">
+      <div style="font-size:3rem;">&#128274;</div>
+      <h2 style="margin:0;">Sesión finalizada</h2>
+      <p style="margin:0;color:#bbb;max-width:420px;">Ya puede cerrar esta pestaña.</p>
+    </div>`
 }
