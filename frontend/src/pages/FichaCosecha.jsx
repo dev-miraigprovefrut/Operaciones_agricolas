@@ -99,6 +99,11 @@ function FichaCosecha() {
             </tr>
           </thead>
           <tbody>
+            <style>{`
+              @keyframes titilar-sin-enviar { 0%, 100% { background-color: rgba(220, 53, 69, 0.12) } 50% { background-color: rgba(220, 53, 69, 0.42) } }
+              .celda-sin-enviar { animation: titilar-sin-enviar 1.4s ease-in-out infinite; }
+              @media (prefers-reduced-motion: reduce) { .celda-sin-enviar { animation: none; background-color: rgba(220, 53, 69, 0.3) !important; } }
+            `}</style>
             {(() => {
               const formatNombre = (raw) => {
                 if (!raw) return '-'
@@ -136,6 +141,9 @@ function FichaCosecha() {
                 const comunResaltado = grupoHover === grupo.clave
                 return grupo.fichas.map((ficha, idx) => {
                   const filaResaltada = filaHoverId === claveFicha(ficha)
+                  // Lleno y sin enviar: titila en rojo hasta que el supervisor lo envie
+                  const sinEnviar = ficha.estado === 'Activo' && (ficha.productos || []).length > 0
+                  const claseCelda = sinEnviar && !filaResaltada ? 'celda-sin-enviar' : undefined
                   return (
                   <tr key={claveFicha(ficha)} className="clickeable" onClick={() => seleccionarFicha(ficha)}
                     onMouseEnter={() => { setGrupoHover(grupo.clave); setFilaHoverId(claveFicha(ficha)) }}
@@ -152,12 +160,13 @@ function FichaCosecha() {
                         )}
                       </td>
                     </>}
-                    <td style={{background: filaResaltada ? 'var(--color-bg-light)' : fondoGrupo}}>{ficha.productos?.map(p => p.lote).filter(Boolean).join(', ') || '-'}
+                    <td className={claseCelda} style={{background: filaResaltada ? 'var(--color-bg-light)' : fondoGrupo}}>{ficha.productos?.map(p => p.lote).filter(Boolean).join(', ') || '-'}
+                      {sinEnviar && <div style={{fontSize: '0.68rem', color: '#dc3545', fontWeight: 700}}><i className='bx bx-error-circle'></i> Sin enviar</div>}
                       {ficha._local && <div style={{fontSize: '0.68rem', color: '#e67e22', fontWeight: 600}} title="Guardada en el celular, se envía al haber señal"><i className='bx bx-time-five'></i> Por sincronizar</div>}
                     </td>
-                    <td style={{background: filaResaltada ? 'var(--color-bg-light)' : fondoGrupo}}>{ficha.productos?.map(p => p.producto).filter(Boolean).join(', ') || '-'}</td>
-                    <td style={{background: filaResaltada ? 'var(--color-bg-light)' : fondoGrupo}}>{ficha.productos?.map(p => p.variedad).filter(Boolean).join(', ') || '-'}</td>
-                    <td style={{background: filaResaltada ? 'var(--color-bg-light)' : fondoGrupo}}>{ficha.productos?.reduce((sum, p) => sum + (p.cantidad || 0), 0) || '-'}</td>
+                    <td className={claseCelda} style={{background: filaResaltada ? 'var(--color-bg-light)' : fondoGrupo}}>{ficha.productos?.map(p => p.producto).filter(Boolean).join(', ') || '-'}</td>
+                    <td className={claseCelda} style={{background: filaResaltada ? 'var(--color-bg-light)' : fondoGrupo}}>{ficha.productos?.map(p => p.variedad).filter(Boolean).join(', ') || '-'}</td>
+                    <td className={claseCelda} style={{background: filaResaltada ? 'var(--color-bg-light)' : fondoGrupo}}>{ficha.productos?.reduce((sum, p) => sum + (p.cantidad || 0), 0) || '-'}</td>
                   </tr>
                   )
                 })
