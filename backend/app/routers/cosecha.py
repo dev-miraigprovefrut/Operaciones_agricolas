@@ -306,6 +306,11 @@ def guardar_productos(data: ProductosIn, db: Session = Depends(get_db), _: Usuar
                 :centro_costos, :orden_cultivo, :variedad, :ubicacion, :cantidad, :responsable, 'Cargado')"""),
                 {**valores, "id_transporte": data.id_transporte, "orden_cultivo": p.orden_cultivo})
             nuevos += 1
+    # Camion vacio eliminado por la limpieza nocturna al que le llegan productos
+    # tarde (celular sin senal): vuelve a Activo para no perderlos.
+    if nuevos and data.id_transporte:
+        db.execute(text("""UPDATE cosecha_transporte SET estado = 'Activo'
+            WHERE id_cosecha_transporte = :id AND estado = 'Eliminado'"""), {"id": data.id_transporte})
     db.commit()
     return {"message": f"{nuevos} nuevos, {actualizados} actualizados"}
 

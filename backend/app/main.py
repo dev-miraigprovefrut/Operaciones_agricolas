@@ -84,7 +84,16 @@ def iniciar_sync_informix():
         except Exception:  # noqa: BLE001
             logger.exception("Error en sync de fichas de aplicacion")
 
+    def _limpieza():
+        try:
+            from .sync import limpieza_cosecha
+            limpieza_cosecha.main()
+        except Exception:  # noqa: BLE001
+            logger.exception("Error en limpieza de camiones vacios")
+
     sched = BackgroundScheduler(timezone="UTC")
+    # 23:30 Ecuador: camiones Activo sin productos con mas de 24 h -> Eliminado
+    sched.add_job(_limpieza, "cron", hour=4, minute=30, coalesce=True, max_instances=1, misfire_grace_time=3600)
     sched.add_job(_fichas, "cron", hour="11-23", minute=40, coalesce=True, max_instances=1, misfire_grace_time=600)
     sched.add_job(_cosecha, "cron", hour="1/2", minute=0, coalesce=True, max_instances=1, misfire_grace_time=600)
     sched.add_job(_lotes, "cron", day_of_week="fri,mon", minute=15, coalesce=True, max_instances=1,

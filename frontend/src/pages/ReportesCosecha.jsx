@@ -108,6 +108,9 @@ function ReportesCosecha() {
     } else {
       matchEstado = f.estado !== 'Falla' && f.estado !== 'Eliminado'
     }
+    // Camion Activo sin productos (toque de mas al crear): no hay nada que ver;
+    // el backend lo elimina a las 24 h. Solo se ve filtrando por Activo.
+    if (filtroEstado !== 'Activo' && f.estado === 'Activo' && !(f.productos || []).length) matchEstado = false
     let matchFecha = true
     if (f.fecha_creacion) {
       const fichaDate = f.fecha_creacion.split('T')[0]
@@ -796,10 +799,13 @@ function ReportesCosecha() {
               const grupos = Array.from(gruposMap.values())
 
               return grupos.map((grupoFichas, gIdx) => {
-                const fondoGrupo = grupoFichas.length > 1 && gIdx % 2 === 1 ? 'var(--color-bg-light)' : undefined
+                const fondoGrupoBase = grupoFichas.length > 1 && gIdx % 2 === 1 ? 'var(--color-bg-light)' : undefined
 
                 return grupoFichas.map((f, fi) => {
                   const prods = f.productos || []
+                  // Lleno pero sin enviar: en rojo para que el supervisor lo envie
+                  const sinEnviar = f.estado === 'Activo' && prods.length > 0
+                  const fondoGrupo = sinEnviar ? 'rgba(220, 53, 69, 0.18)' : fondoGrupoBase
                   // verticalAlign 'middle' en todas las celdas combinadas (Fecha,
                   // Placa, comunes, y el Estado de una ficha con varios
                   // productos) para que se vean centradas en medio de todas las
@@ -840,8 +846,8 @@ function ReportesCosecha() {
                         <td style={{textAlign: 'center'}}>{p.cantidad || 0}</td>
                         <td style={{textAlign: 'center'}}>{p.peso || '-'}</td>
                         <td>
-                          <span className="col-ocultar-movil" style={{background: badgeColor(f.estado), color: 'white', padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem'}}>{f.estado}</span>
-                          <span className="estado-badge-punto" title={f.estado} style={{background: badgeColor(f.estado), width: '12px', height: '12px', borderRadius: '50%', display: 'none'}}></span>
+                          <span className="col-ocultar-movil" style={{background: sinEnviar ? '#dc3545' : badgeColor(f.estado), color: 'white', padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem'}}>{sinEnviar ? 'Sin enviar' : f.estado}</span>
+                          <span className="estado-badge-punto" title={sinEnviar ? 'Sin enviar' : f.estado} style={{background: sinEnviar ? '#dc3545' : badgeColor(f.estado), width: '12px', height: '12px', borderRadius: '50%', display: 'none'}}></span>
                         </td>
                       </tr>
                     )
@@ -887,8 +893,8 @@ function ReportesCosecha() {
                       <td style={{textAlign: 'center'}}>{p.peso || '-'}</td>
                       {(
                         <td>
-                          <span className="col-ocultar-movil" style={{background: badgeColor(f.estado), color: 'white', padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem'}}>{f.estado}</span>
-                          <span className="estado-badge-punto" title={f.estado} style={{background: badgeColor(f.estado), width: '12px', height: '12px', borderRadius: '50%', display: 'none'}}></span>
+                          <span className="col-ocultar-movil" style={{background: sinEnviar ? '#dc3545' : badgeColor(f.estado), color: 'white', padding: '2px 8px', borderRadius: '4px', fontSize: '0.7rem'}}>{sinEnviar ? 'Sin enviar' : f.estado}</span>
+                          <span className="estado-badge-punto" title={sinEnviar ? 'Sin enviar' : f.estado} style={{background: sinEnviar ? '#dc3545' : badgeColor(f.estado), width: '12px', height: '12px', borderRadius: '50%', display: 'none'}}></span>
                           {f.estado === 'Falla' && f.observacion_falla && <div style={{fontSize: '0.65rem', color: 'var(--color-text-secondary)', marginTop: '3px', lineHeight: 1.2}} title={f.observacion_falla}>{f.observacion_falla.length > 60 ? f.observacion_falla.substring(0, 60) + '...' : f.observacion_falla}</div>}
                           {f.estado === 'Corregida' && f.correccion_id && <div style={{fontSize: '0.65rem', color: '#17a2b8', marginTop: '3px'}}>Corrección de #{f.correccion_id}</div>}
                         </td>
