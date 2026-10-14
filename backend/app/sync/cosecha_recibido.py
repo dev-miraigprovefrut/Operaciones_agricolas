@@ -3,7 +3,7 @@
 PASO 1: asigna num_ficha, peso, hora_ingreso y recibido_por a los productos de
         fichas Enviado/Corregida (y Activo abandonadas) que aun no los tienen.
 PASO 2: marca Recibido la ficha cuando TODOS sus productos tienen num_ficha y
-        ajusta fecha_creacion / hora_ingreso / fecha_salida (llegada - 2h).
+        ajusta fecha_creacion / hora_ingreso / fecha_salida (llegada - 4h).
 Misma logica que el sync anterior, sobre las tablas nuevas.
 """
 import logging
@@ -17,7 +17,10 @@ from .informix import ejecutar_query
 
 log = logging.getLogger(__name__)
 EMPRESA_MAP = {"182": "PROVEFRUT", "192": "PROCONGELADOS", "322": "322", "332": "332"}
-OFFSETS = [0, -1]          # el dia registrado y, en caso extremo, un dia antes
+# Dias (respecto a la creacion) donde se busca la llegada, en orden de preferencia:
+# el mismo dia, el siguiente (sale en la tarde, llega en la manana), uno antes
+# (fichas sin senal fechadas tarde) y hasta 2 dias despues.
+OFFSETS = [0, 1, -1, 2]
 
 
 def conectar():
@@ -131,21 +134,19 @@ def main(solo_transp_id=None, incluir_activo_abandonado=False) -> dict:
                 grupos.setdefault(((r[5] or "").strip(), (r[2] or "").strip().upper(), str(r[3])), []).append((r[4], r[0]))
         p1 = 0
         for (ocult, empresa, fecha), lista in grupos.items():
-            infx = infx_grupos.get((ocult, empresa, fecha), [])
-            if not infx:
-                f = datetime.strptime(fecha, "%Y-%m-%d")
-                for o in OFFSETS[1:]:
-                    alt = (ocult, empresa, (f + timedelta(days=o)).strftime("%Y-%m-%d"))
-                    if infx_grupos.get(alt):
-                        infx = infx_grupos[alt]
-                        break
-            infx = [e for e in infx if e[0] not in usados]
+            # Ingresos libres y YA pesados (los de 0 kg se saltan: antes uno sin
+            # pesar bloqueaba a los siguientes y la ficha nunca se cerraba)
+            f = datetime.strptime(fecha, "%Y-%m-%d")
+            infx = []
+            for o in OFFSETS:
+                alt = (ocult, empresa, (f + timedelta(days=o)).strftime("%Y-%m-%d"))
+                infx = [e for e in infx_grupos.get(alt, []) if e[0] not in usados and e[1] > 0]
+                if infx:
+                    break
             for i, (prod_id, t_id) in enumerate(lista):
                 if i >= len(infx):
                     break
                 num_sec, peso, hora_ing, registrador = infx[i]
-                if peso <= 0:          # entregado pero aun sin pesar: se reintenta luego
-                    continue
                 cur.execute("UPDATE cosecha SET num_ficha = %s, peso = %s WHERE id_cosecha = %s", (num_sec, peso, prod_id))
                 usados.add(num_sec)
                 cur.execute("""UPDATE cosecha_transporte SET hora_ingreso = COALESCE(NULLIF(%s, ''), hora_ingreso),
@@ -178,7 +179,7 @@ def main(solo_transp_id=None, incluir_activo_abandonado=False) -> dict:
                            fecha_salida = COALESCE(%s, fecha_salida)
                            WHERE id_cosecha_transporte = %s""",
                         (fmov_iso, hora_ing or None, registrador or None,
-                         (llegada - timedelta(hours=2)) if llegada else None, t_id))
+                         (llegada - timedelta(hours=4)) if llegada else None, t_id))
             hechos.add(t_id)
             p2 += 1
         conn.commit()
