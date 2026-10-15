@@ -162,10 +162,17 @@ function Nav({ isOpen, onClose }) {
                     )}
                     <li><Link to="/configuraciones/entrenamiento" className="nav-submenu-link" onClick={closeMenus}><i className='bx bx-book-reader'></i> Entrenamiento</Link></li>
                     <li><Link to="/configuraciones/version" className="nav-submenu-link" onClick={closeMenus}><i className='bx bx-info-circle'></i> Versión</Link></li>
-                    <li><Link to="/configuraciones/ayuda" className="nav-submenu-link" onClick={closeMenus}><i className='bx bx-help-circle'></i> Ayuda</Link></li>
                   </ul>
                 </div>
               )}
+            </li>
+
+            {/* Asistente MirAI (chat de ayuda): a la derecha de la barra, ya no en Configuraciones */}
+            <li className="nav-item nav-item-ayuda">
+              <Link to="/configuraciones/ayuda" className="nav-button" onClick={closeMenus} title="Asistente MirAI (ayuda)">
+                <i className='bx bx-bot'></i>
+                <span>Ayuda</span>
+              </Link>
             </li>
         </ul>
       </div>

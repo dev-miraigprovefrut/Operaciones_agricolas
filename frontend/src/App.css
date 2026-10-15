@@ -259,3 +259,9 @@ input[type=number]::-webkit-outer-spin-button {
 input[type=number] {
   -moz-appearance: textfield;
 }
+
+/* Boton de ayuda (chat) al extremo derecho de la barra de menu */
+@media (min-width: 769px) {
+  .app-nav .nav-items { flex: 1; }
+  .nav-item-ayuda { margin-left: auto; }
+}

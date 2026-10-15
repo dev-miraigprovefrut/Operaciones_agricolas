@@ -107,6 +107,17 @@ def _usuario_hub(token: str) -> Usuario:
     )
 
 
+def sesion_mirai(request: Request) -> Usuario:
+    """Cualquier usuario con sesion valida del HUB, SIN exigir acceso a este
+    modulo: para las lecturas que comparte con otros modulos (ej. Mantenimiento
+    lee tractoristas y proyectos). Nunca para escribir."""
+    token = _token_hub(request)
+    if not token:
+        raise HTTPException(401, "Sesión no iniciada")
+    p = _validar_hub(token)
+    return Usuario(username=(p.get("username") or p.get("sub")).strip().lower(), tipo="hub", token=token, claims=p)
+
+
 # ------------------------------------------------------------- tractorista
 def _clave_tractorista() -> str:
     clave = settings.TRACTORISTA_SECRET_KEY
