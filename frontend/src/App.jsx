@@ -25,12 +25,13 @@ import { useModoColor } from './services/useModoColor'
 import { aplicarTema } from './utils/aplicarTema'
 import { cerrarSesion } from './services/sesion'
 import './App.css'
+import { useUrlAyuda } from './utils/ayuda'
 
 // Modulo de una sola empresa (Nintanga): siempre se busca esta misma fila de
 // la tabla compartida `empresas`, sin selector -- ver TEMA.md.
 const NUMERO_EMPRESA = '222'
-// Asistente MirAI (chatbot): usa la misma cookie de sesion del HUB, no token en la URL.
-const CHATBOT_URL = import.meta.env.VITE_CHATBOT_URL || 'https://chatbot.miraigprovefrut.com'
+// Asistente MirAI (chatbot): link de produccion del modulo Soporte en la tabla de
+// modulos del HUB (utils/ayuda.js); misma cookie de sesion, no token en la URL.
 
 function DefaultRedirect() {
   const permisos = (() => { try { return JSON.parse(localStorage.getItem('user_permisos_operagricola') || '{}') } catch { return {} } })()
@@ -145,6 +146,7 @@ function VersionPage() {
 function AyudaPage() {
   const navigate = useNavigate()
   const [showChat, setShowChat] = useState(true)
+  const urlChatAyuda = useUrlAyuda()
 
   const cerrarChat = () => {
     setShowChat(false)
@@ -200,7 +202,7 @@ function AyudaPage() {
         </div>
         {/* Iframe del chat */}
         <iframe
-          src={CHATBOT_URL}
+          src={urlChatAyuda || 'about:blank'}
           style={{flex: 1, border: 'none', width: '100%'}}
           title="Asistente Virtual"
         />
