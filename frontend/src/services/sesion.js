@@ -22,6 +22,8 @@ const esApi = (url) => typeof url === 'string' && url.startsWith(API_URL)
 const RUTAS_SIN_REINTENTO = ['/api/tractoristas/', '/api/auth/me']
 
 export const esTractorista = () => localStorage.getItem('usuario_tipo') === 'tractorista'
+/** Sesion de telefono de campo del HUB (supervisores sin señal): no se corta por inactividad. */
+export const esTelefonoCampo = () => localStorage.getItem('usuario_campo') === '1'
 
 let renovando = null
 /** Renueva la cookie de acceso con el refresh del HUB (una sola a la vez). */
@@ -47,7 +49,7 @@ window.fetch = async (input, init = {}) => {
   let res = await fetchOriginal(input, opciones)
   // Sin actividad reciente no se renueva (la sesion vence a las 10 h sin
   // actividad); al volver el usuario se renueva en main.jsx.
-  if (res.status === 401 && !esTractorista() && !huboActividad()) return res
+  if (res.status === 401 && !esTractorista() && !esTelefonoCampo() && !huboActividad()) return res
   if (res.status === 401 && !RUTAS_SIN_REINTENTO.some(r => url.includes(r))) {
     if (await renovarSesion()) {
       res = await fetchOriginal(input, opciones)
@@ -58,7 +60,7 @@ window.fetch = async (input, init = {}) => {
 }
 
 const CLAVES = ['usuario_nombre', 'usuario_username', 'usuario_correo', 'usuario_rol', 'usuario_departamento',
-  'usuario_empresa', 'usuario_jefe', 'usuario_tipo', 'user_permisos_operagricola']
+  'usuario_empresa', 'usuario_jefe', 'usuario_tipo', 'usuario_campo', 'user_permisos_operagricola']
 
 export function limpiarDatosSesion() {
   CLAVES.forEach(k => localStorage.removeItem(k))
@@ -104,6 +106,8 @@ export async function cargarSesion() {
     localStorage.setItem('user_permisos_operagricola', JSON.stringify({ es_admin: !!d.es_admin, pestanas: d.pestanas || [] }))
   }
   localStorage.setItem('usuario_tipo', d.tipo === 'tractorista' ? 'tractorista' : 'hub')
+  if (d.campo) localStorage.setItem('usuario_campo', '1')
+  else localStorage.removeItem('usuario_campo')
   localStorage.removeItem('token')
   return 'ok'
 }

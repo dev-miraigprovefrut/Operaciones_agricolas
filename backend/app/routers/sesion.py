@@ -25,6 +25,8 @@ def yo(user: Usuario = Depends(get_current_user)):
         "tipo": user.tipo, "username": user.username, "nombre": user.nombre, "correo": user.correo,
         "rol": user.rol, "departamento": user.departamento, "empresa": user.empresa, "jefe": user.jefe,
         "exp": user.exp, "es_admin": user.es_admin,
+        # Telefono de campo (HUB): sesion de jornada, la app no se cierra por inactividad
+        "campo": bool(user.claims.get("campo")),
         "pestanas": list(PESTANAS) if user.es_admin else user.pestanas,
     }
 

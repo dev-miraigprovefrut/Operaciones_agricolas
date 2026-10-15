@@ -2,7 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
-import { API_URL, cargarSesion, cerrarSesion, limpiarDatosSesion, renovarSesion, esTractorista, cerrarPestana, HUB_LOGIN_URL, HUB_URL, haySesionGuardada } from './services/sesion.js'
+import { API_URL, cargarSesion, cerrarSesion, limpiarDatosSesion, renovarSesion, esTractorista, esTelefonoCampo, cerrarPestana, HUB_LOGIN_URL, HUB_URL, haySesionGuardada } from './services/sesion.js'
 import { huboActividad, alVolverActividad } from './services/actividad.js'
 
 // Enlaces viejos del HUB traen #token=... en la URL: ya no se usa (la sesion
@@ -62,6 +62,9 @@ function renderizar() {
   // sigue); tractorista -> se cierra su sesion y vuelve al login de PIN.
   const revisarInactividad = () => {
     if (window.location.pathname.startsWith('/login-tractorista')) return
+    // Telefono de campo: entre un camion y otro pasan horas; la sesion de jornada
+    // (16 h) la controla el HUB.
+    if (esTelefonoCampo()) return
     if (!huboActividad(CIERRE_POR_INACTIVIDAD_MS)) cerrarPorInactividad()
   }
   setInterval(revisarInactividad, 60 * 1000)
