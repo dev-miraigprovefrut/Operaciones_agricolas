@@ -1,6 +1,20 @@
 <!doctype html>
 <html lang="es" class="nintanga-theme">
   <head>
+    <script>
+      // Tras un despliegue, una pestana con la version vieja pide archivos que ya no
+      // existen (404) y queda en blanco: se recarga UNA vez para traer la nueva.
+      (function () {
+        var k = 'recarga-version';
+        var recargar = function () { if (!sessionStorage.getItem(k)) { sessionStorage.setItem(k, '1'); location.reload(); } };
+        window.addEventListener('error', function (e) {
+          var t = e.target, u = t && (t.src || t.href);
+          if (t && (t.tagName === 'SCRIPT' || t.tagName === 'LINK') && u && u.indexOf(location.origin) === 0) recargar();
+        }, true);
+        window.addEventListener('vite:preloadError', function (e) { e.preventDefault(); recargar(); });
+        window.addEventListener('load', function () { setTimeout(function () { sessionStorage.removeItem(k); }, 10000); });
+      })();
+    </script>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/Mirai1-nintanga.png" />
     <link rel="apple-touch-icon" href="/Mirai1-nintanga.png" />
