@@ -12,7 +12,7 @@
  */
 import { verComoActivo } from './verComo'
 import { huboActividad } from './actividad'
-import { borrarTelefonoDadoDeBaja, esTelefonoDeBaja } from './dispositivo.js'
+import { borrarTelefonoDadoDeBaja, esTelefonoDeBaja, llaveDispositivo, nombreDispositivo } from './dispositivo.js'
 
 export const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8007').replace(/\/$/, '')
 export const HUB_API_URL = (import.meta.env.VITE_HUB_API_URL || 'https://hubbk.miraigprovefrut.com/api').replace(/\/$/, '')
@@ -117,6 +117,13 @@ export async function cargarSesion() {
     localStorage.setItem('user_permisos_operagricola', JSON.stringify({ es_admin: !!d.es_admin, pestanas: d.pestanas || [] }))
   }
   localStorage.setItem('usuario_tipo', d.tipo === 'tractorista' ? 'tractorista' : 'hub')
+  // Sesion de tractorista de ANTES del telefono registrado: se registra solo
+  if (d.tipo === 'tractorista' && d.dispositivo === false) {
+    fetch(`${API_URL}/api/tractoristas/dispositivo`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dispositivo: llaveDispositivo(), dispositivo_nombre: nombreDispositivo() })
+    }).catch(() => { /* sin red: se intenta la proxima vez */ })
+  }
   if (d.campo) localStorage.setItem('usuario_campo', '1')
   else localStorage.removeItem('usuario_campo')
   localStorage.removeItem('token')

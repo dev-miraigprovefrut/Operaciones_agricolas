@@ -13,6 +13,7 @@ from ..auth import (PESTANAS, Usuario, cerrar_sesion_tractorista, emitir_sesion_
                     formatear_nombre_tractorista, get_current_user)
 from ..models import TractoristaDispositivo
 from ..clients import personas
+from ..comun import ahora_ecuador
 from ..config import settings
 from ..database import get_db
 from ..models import Tractorista
@@ -27,7 +28,7 @@ def yo(response: Response, db: Session = Depends(get_db), user: Usuario = Depend
     # Telefono registrado: ultimo uso y sesion renovada (no vence mientras se use)
     if user.es_tractorista and user.claims.get("disp"):
         d = db.get(TractoristaDispositivo, user.claims["disp"])
-        d.ultimo_uso = datetime.now()
+        d.ultimo_uso = ahora_ecuador()
         db.commit()
         if (user.exp or 0) - datetime.now().timestamp() < settings.TRACTORISTA_DIAS_DISPOSITIVO * 86400 / 2:
             emitir_sesion_tractorista(response, db.get(Tractorista, user.id_tractorista), user.nombre, d.id)
@@ -37,6 +38,8 @@ def yo(response: Response, db: Session = Depends(get_db), user: Usuario = Depend
         "exp": user.exp, "es_admin": user.es_admin,
         # Telefono de campo (HUB): sesion de jornada, la app no se cierra por inactividad
         "campo": bool(user.claims.get("campo")),
+        # Tractorista con sesion de ANTES del telefono registrado: la app lo registra
+        "dispositivo": bool(user.claims.get("disp")) if user.es_tractorista else None,
         "pestanas": list(PESTANAS) if user.es_admin else user.pestanas,
     }
 
@@ -201,8 +204,8 @@ def login(data: TractoristaLogin, response: Response, db: Session = Depends(get_
     d = db.scalar(select(TractoristaDispositivo).where(TractoristaDispositivo.id_tractorista == t.id,
                                                        TractoristaDispositivo.activo.is_(True)))
     if d is None:
-        d = TractoristaDispositivo(id_tractorista=t.id, llave_hash=llave,
-                                   descripcion=(data.dispositivo_nombre or "Teléfono")[:200], ultimo_uso=ahora)
+        d = TractoristaDispositivo(id_tractorista=t.id, llave_hash=llave, fecha_alta=ahora_ecuador(),
+                                   descripcion=(data.dispositivo_nombre or "Teléfono")[:200], ultimo_uso=ahora_ecuador())
         db.add(d)
     elif d.llave_hash != llave:
         db.commit()
@@ -210,12 +213,48 @@ def login(data: TractoristaLogin, response: Response, db: Session = Depends(get_
                                  f"{d.fecha_alta:%d/%m/%Y}). Si cambió o perdió el celular, pida que lo den de "
                                  "baja en Catálogos › Tractoristas.")
     else:
-        d.ultimo_uso = ahora
+        d.ultimo_uso = ahora_ecuador()
     t.intentos_fallidos, t.bloqueado_hasta, t.ultimo_acceso = 0, None, ahora
     db.commit()
     nombre = _nombre(t)
     token = emitir_sesion_tractorista(response, t, nombre, d.id)
     return {"token": token, "nombre": nombre, "username": t.username}
+
+
+class DispositivoIn(BaseModel):
+    dispositivo: str
+    dispositivo_nombre: str | None = None
+
+
+@router.post("/api/tractoristas/dispositivo")
+def registrar_dispositivo(data: DispositivoIn, response: Response, db: Session = Depends(get_db),
+                          user: Usuario = Depends(get_current_user)):
+    """Sesion abierta ANTES del telefono registrado (sin 'disp'): al abrir la
+    app con internet el telefono se registra solo y la sesion pasa a ser la del
+    telefono (30 dias), sin volver a pedir el codigo. Si ya tiene OTRO telefono
+    activo no se registra (409) y sigue con su sesion vieja hasta que venza."""
+    if not user.es_tractorista:
+        raise HTTPException(403, "Solo tractoristas")
+    if user.claims.get("disp"):
+        return {"resultado": "ya_registrado"}
+    if len(data.dispositivo or "") < 32:
+        raise HTTPException(400, "Llave de teléfono inválida")
+    t = _activo(db.get(Tractorista, user.id_tractorista))
+    llave = hashlib.sha256(data.dispositivo.encode()).hexdigest()
+    d = db.scalar(select(TractoristaDispositivo).where(TractoristaDispositivo.id_tractorista == t.id,
+                                                       TractoristaDispositivo.activo.is_(True)))
+    if d is None:
+        d = TractoristaDispositivo(id_tractorista=t.id, llave_hash=llave, fecha_alta=ahora_ecuador(),
+                                   descripcion=(data.dispositivo_nombre or "Teléfono")[:200], ultimo_uso=ahora_ecuador())
+        db.add(d)
+        db.flush()
+    elif d.llave_hash != llave:
+        raise HTTPException(409, f"Ya tiene otro teléfono registrado ({d.descripcion}).")
+    else:
+        d.ultimo_uso = ahora_ecuador()
+    db.commit()
+    emitir_sesion_tractorista(response, t, user.nombre, d.id)
+    return {"resultado": "registrado"}
 
 
 @router.post("/api/tractoristas/logout")
