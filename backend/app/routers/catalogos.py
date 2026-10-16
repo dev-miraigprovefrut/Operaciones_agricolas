@@ -13,7 +13,12 @@ from ..clients import personas
 from ..comun import estado_api, estado_db
 from ..config import settings
 from ..database import get_db
-from ..models import Actividad, Camion, Proyecto, Supervisor, Tractorista
+import secrets
+from datetime import datetime, timedelta
+
+import bcrypt
+
+from ..models import Actividad, Camion, Proyecto, Supervisor, Tractorista, TractoristaDispositivo
 
 router = APIRouter(prefix="/api")
 
@@ -280,19 +285,58 @@ def eliminar_supervisor(supervisor_id: int, db: Session = Depends(get_db),
 # persona viene del maestro Personas (por cedula) y aqui solo esta su
 # credencial (tractorista). La forma de la respuesta no cambia para la pantalla:
 # codigo = cedula, nombre = APELLIDOS NOMBRES.
-def _tractorista(t: Tractorista, p: dict | None) -> dict:
+def _tractorista(t: Tractorista, p: dict | None, d: TractoristaDispositivo | None = None) -> dict:
     return {"id": t.id, "codigo": t.cedula, "nombre": personas.nombre_legal(p) or t.cedula, "cargo": "Tractorista",
             "estado": estado_api(t.estado), "creado_en": str(t.fecha_creacion) if t.fecha_creacion else None,
             "actualizado_en": None, "username": t.username, "id_persona": t.id_persona,
-            "tiene_pin": bool(t.pin_hash)}
+            "tiene_pin": bool(t.pin_hash) and not t.pin_temporal,
+            "codigo_temporal_vence": str(t.pin_expira) if t.pin_temporal and t.pin_expira else None,
+            "dispositivo": {"id": d.id, "descripcion": d.descripcion,
+                            "fecha_alta": str(d.fecha_alta) if d.fecha_alta else None,
+                            "ultimo_uso": str(d.ultimo_uso) if d.ultimo_uso else None} if d else None}
 
 
 @router.get("/tractoristas")
 def listar_tractoristas(db: Session = Depends(get_db), user: Usuario = Depends(requiere("catalogos_tractoristas"))):
     filas = list(db.scalars(select(Tractorista)))
     gente = personas.lote([t.id_persona for t in filas], user.token)
-    out = [_tractorista(t, gente.get(t.id_persona)) for t in filas]
+    disp = {d.id_tractorista: d for d in db.scalars(
+        select(TractoristaDispositivo).where(TractoristaDispositivo.activo.is_(True)))}
+    out = [_tractorista(t, gente.get(t.id_persona), disp.get(t.id)) for t in filas]
     return sorted(out, key=lambda r: r["nombre"])
+
+
+@router.post("/tractoristas/{id_tractorista}/codigo-temporal")
+def codigo_temporal(id_tractorista: int, db: Session = Depends(get_db),
+                    user: Usuario = Depends(requiere("catalogos_tractoristas"))):
+    """Codigo de 6 digitos (vence en CODIGO_TEMPORAL_HORAS) para que el
+    tractorista cree su codigo propio: primera vez o si lo olvido. Se muestra
+    UNA vez; reemplaza al codigo anterior."""
+    t = db.get(Tractorista, id_tractorista)
+    if not t:
+        raise HTTPException(404, "Tractorista no encontrado")
+    codigo = f"{secrets.randbelow(10**6):06d}"
+    t.pin_hash = bcrypt.hashpw(codigo.encode(), bcrypt.gensalt()).decode()
+    t.pin_temporal = True
+    t.pin_expira = datetime.now() + timedelta(hours=settings.CODIGO_TEMPORAL_HORAS)
+    t.intentos_fallidos, t.bloqueado_hasta = 0, None
+    db.commit()
+    return {"codigo": codigo, "vence": str(t.pin_expira), "generado_por": user.nombre}
+
+
+@router.post("/tractoristas/{id_tractorista}/dispositivo/baja")
+def baja_dispositivo(id_tractorista: int, db: Session = Depends(get_db),
+                     user: Usuario = Depends(requiere("catalogos_tractoristas"))):
+    """Telefono perdido o cambio de celular: deja de funcionar al instante (sus
+    datos locales se borran al volver a tener señal) y el tractorista puede
+    registrar otro."""
+    d = db.scalar(select(TractoristaDispositivo).where(TractoristaDispositivo.id_tractorista == id_tractorista,
+                                                       TractoristaDispositivo.activo.is_(True)))
+    if not d:
+        return {"resultado": "sin_dispositivo"}
+    d.activo, d.fecha_baja, d.baja_por = False, datetime.now(), user.username
+    db.commit()
+    return {"resultado": "dado_de_baja"}
 
 
 @router.get("/tractoristas/personal")

@@ -93,6 +93,43 @@ function CatalogoTractoristas() {
     } catch (err) { console.error(err) }
   }
 
+  const fechaCorta = f => f ? new Date(f.replace(' ', 'T')).toLocaleDateString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric' }) : '-'
+
+  // Telefono perdido o cambio de celular: deja de funcionar al instante
+  const handleBajaTelefono = async (t) => {
+    const r = await Swal.fire({
+      title: 'Dar de baja el teléfono',
+      html: `<b>${t.dispositivo.descripcion}</b> de ${t.nombre}<br><br>Dejará de funcionar de inmediato y se borrarán sus datos en ese teléfono al tener señal. Lo que no se haya enviado desde ese teléfono se pierde. El tractorista podrá registrar otro teléfono al ingresar.`,
+      icon: 'warning', showCancelButton: true, confirmButtonColor: '#dc3545', cancelButtonColor: '#6c757d',
+      confirmButtonText: 'Dar de baja', cancelButtonText: 'Cancelar'
+    })
+    if (!r.isConfirmed) return
+    const res = await fetch(`${API_URL}/api/tractoristas/${t.id}/dispositivo/baja`, { method: 'POST' })
+    if (!res.ok) return Swal.fire('No se pudo dar de baja', (await res.json().catch(() => ({}))).detail || '', 'error')
+    await fetchData()
+    Swal.fire({ title: 'Teléfono dado de baja', icon: 'success', timer: 1800, showConfirmButton: false })
+  }
+
+  // Olvido su codigo: codigo temporal de 6 digitos (se muestra una sola vez)
+  const handleCodigoTemporal = async (t) => {
+    const r = await Swal.fire({
+      title: 'Código temporal',
+      html: `Para que <b>${t.nombre}</b> cree un código nuevo porque olvidó el suyo.<br><br>Su código actual dejará de funcionar.`,
+      icon: 'question', showCancelButton: true, confirmButtonColor: '#7b1fa2', cancelButtonColor: '#6c757d',
+      confirmButtonText: 'Generar', cancelButtonText: 'Cancelar'
+    })
+    if (!r.isConfirmed) return
+    const res = await fetch(`${API_URL}/api/tractoristas/${t.id}/codigo-temporal`, { method: 'POST' })
+    const d = await res.json().catch(() => ({}))
+    if (!res.ok) return Swal.fire('No se pudo generar', d.detail || '', 'error')
+    await fetchData()
+    Swal.fire({
+      title: d.codigo.replace(/(\d{3})(\d{3})/, '$1 $2'),
+      html: `Entréguelo en persona a <b>${t.nombre}</b>.<br>Vence el ${new Date(d.vence.replace(' ', 'T')).toLocaleString('es-EC')}.<br><small>No se volverá a mostrar.</small>`,
+      icon: 'info', confirmButtonColor: '#7b1fa2', confirmButtonText: 'Listo'
+    })
+  }
+
   const filtrados = tractoristas.filter(t =>
     !busqueda || (t.nombre || '').toLowerCase().includes(busqueda.toLowerCase()) || (t.codigo || '').toLowerCase().includes(busqueda.toLowerCase())
   )
@@ -127,6 +164,8 @@ function CatalogoTractoristas() {
               <th>Usuario</th>
               <th>Cargo</th>
               <th>Estado</th>
+              <th>Teléfono</th>
+              <th style={{width: '1%'}}></th>
             </tr>
           </thead>
           <tbody>
@@ -137,10 +176,37 @@ function CatalogoTractoristas() {
                 <td style={{textTransform: 'lowercase'}}>{t.username || '-'}</td>
                 <td>{t.cargo || '-'}</td>
                 <td><span style={{background: t.estado === 'Activo' ? '#28a745' : '#dc3545', color: 'white', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem'}}>{t.estado}</span></td>
+                <td onClick={e => e.stopPropagation()} style={{cursor: 'default'}}>
+                  {t.dispositivo ? (
+                    <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem', flexWrap: 'wrap'}}>
+                      <div>
+                        <div style={{fontSize: '0.8rem'}}><i className='bx bx-mobile-alt'></i> {t.dispositivo.descripcion}</div>
+                        <div style={{fontSize: '0.7rem', color: 'var(--color-text-secondary)'}}>
+                          Desde {fechaCorta(t.dispositivo.fecha_alta)} · último uso {fechaCorta(t.dispositivo.ultimo_uso)}
+                        </div>
+                      </div>
+                      <button className="btn btn-sm" onClick={() => handleBajaTelefono(t)}
+                        style={{background: '#dc3545', color: 'white', padding: '2px 8px', fontSize: '0.72rem'}}>
+                        <i className='bx bx-block'></i> Dar de baja
+                      </button>
+                    </div>
+                  ) : <span style={{fontSize: '0.75rem', color: 'var(--color-text-secondary)'}}>Sin teléfono registrado</span>}
+                  {t.codigo_temporal_vence && (
+                    <div style={{fontSize: '0.7rem', color: '#e67e22', marginTop: '2px'}}>
+                      <i className='bx bx-key'></i> Código temporal pendiente (vence {fechaCorta(t.codigo_temporal_vence)})
+                    </div>
+                  )}
+                </td>
+                <td onClick={e => e.stopPropagation()} style={{cursor: 'default', whiteSpace: 'nowrap'}}>
+                  <button className="btn btn-sm" title="Olvidó su código: generar código temporal" onClick={() => handleCodigoTemporal(t)}
+                    style={{background: 'var(--color-bg-light)', color: 'var(--color-text)', padding: '2px 8px', fontSize: '0.72rem'}}>
+                    <i className='bx bx-key'></i> Código temporal
+                  </button>
+                </td>
               </tr>
             ))}
             {filtrados.length === 0 && (
-              <tr><td colSpan="5" style={{textAlign:'center',padding:'2rem',color:'var(--color-text-secondary)'}}>No hay tractoristas</td></tr>
+              <tr><td colSpan="7" style={{textAlign:'center',padding:'2rem',color:'var(--color-text-secondary)'}}>No hay tractoristas</td></tr>
             )}
           </tbody>
         </table>

@@ -65,6 +65,8 @@ function renderizar() {
     // Telefono de campo: entre un camion y otro pasan horas; la sesion de jornada
     // (16 h) la controla el HUB.
     if (esTelefonoCampo()) return
+    // Tractorista: telefono registrado (se da de baja en Catalogos > Tractoristas)
+    if (esTractorista() || esDominioTractoristas) return
     if (!huboActividad(CIERRE_POR_INACTIVIDAD_MS)) cerrarPorInactividad()
   }
   setInterval(revisarInactividad, 60 * 1000)
@@ -108,6 +110,7 @@ async function iniciar() {
   // SIN INTERNET: si el celular ya tiene la sesion guardada se entra igual y
   // se trabaja con lo guardado (la cola envia todo al volver la señal).
   if (haySesionGuardada()) { renderizar(); return }
+  if (esDominioTractoristas) { window.location.href = '/login-tractorista'; return }
   pantalla({ icono: 'bx-wifi-off', color: '#ff8a80', titulo: 'Sin conexión',
     texto: 'No se pudo contactar al servidor. Revise su conexión e intente de nuevo.',
     botones: [{ texto: 'Reintentar', accion: () => window.location.reload() }] })

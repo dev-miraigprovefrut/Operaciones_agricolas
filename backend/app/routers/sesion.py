@@ -1,14 +1,17 @@
 """Sesion: quien soy (usuario del HUB o tractorista) y login de tractoristas."""
 from datetime import datetime, timedelta
 
+import hashlib
+
 import bcrypt
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..auth import (PESTANAS, Usuario, cerrar_sesion_tractorista, emitir_sesion_tractorista,
                     formatear_nombre_tractorista, get_current_user)
+from ..models import TractoristaDispositivo
 from ..clients import personas
 from ..config import settings
 from ..database import get_db
@@ -18,9 +21,16 @@ router = APIRouter()
 
 
 @router.get("/api/auth/me")
-def yo(user: Usuario = Depends(get_current_user)):
+def yo(response: Response, db: Session = Depends(get_db), user: Usuario = Depends(get_current_user)):
     """Lo que antes el frontend leia decodificando el JWT (ahora la sesion va en
     una cookie HttpOnly y el JavaScript no la puede leer)."""
+    # Telefono registrado: ultimo uso y sesion renovada (no vence mientras se use)
+    if user.es_tractorista and user.claims.get("disp"):
+        d = db.get(TractoristaDispositivo, user.claims["disp"])
+        d.ultimo_uso = datetime.now()
+        db.commit()
+        if (user.exp or 0) - datetime.now().timestamp() < settings.TRACTORISTA_DIAS_DISPOSITIVO * 86400 / 2:
+            emitir_sesion_tractorista(response, db.get(Tractorista, user.id_tractorista), user.nombre, d.id)
     return {
         "tipo": user.tipo, "username": user.username, "nombre": user.nombre, "correo": user.correo,
         "rol": user.rol, "departamento": user.departamento, "empresa": user.empresa, "jefe": user.jefe,
@@ -51,12 +61,15 @@ class TractoristaVerificar(BaseModel):
 class TractoristaRegistro(BaseModel):
     username: str
     cedula: str
-    pin: str
+    pin: str                       # codigo propio NUEVO (4 digitos)
+    codigo_temporal: str | None = None
 
 
 class TractoristaLogin(BaseModel):
     username: str
     pin: str
+    dispositivo: str | None = None          # llave del telefono (solo vive en el)
+    dispositivo_nombre: str | None = None   # "Android 14 · Chrome"
 
 
 def _nombre(t: Tractorista) -> str:
@@ -86,10 +99,29 @@ def _validar_pin(pin: str) -> None:
 
 
 def _guardar_pin(db: Session, t: Tractorista, pin: str) -> None:
+    # El codigo propio no vence: el acceso queda atado al telefono registrado y
+    # si se olvida, el catalogo da un codigo temporal (ya no se cambia solo).
     t.pin_hash = bcrypt.hashpw(pin.encode(), bcrypt.gensalt()).decode()
-    t.pin_expira = datetime.now() + timedelta(days=30)
+    t.pin_expira, t.pin_temporal = None, False
     t.intentos_fallidos, t.bloqueado_hasta = 0, None
     db.commit()
+
+
+def _bloqueado(t: Tractorista, ahora: datetime) -> None:
+    if t.bloqueado_hasta and ahora < t.bloqueado_hasta:
+        minutos = int((t.bloqueado_hasta - ahora).total_seconds() // 60) + 1
+        raise HTTPException(429, f"Demasiados intentos. Intente de nuevo en {minutos} min.")
+
+
+def _comprobar(db: Session, t: Tractorista, codigo: str, ahora: datetime) -> None:
+    """Codigo correcto o suma un intento fallido (bloqueo tras PIN_MAX_INTENTOS)."""
+    if not t.pin_hash or not bcrypt.checkpw((codigo or "").encode(), t.pin_hash.encode()):
+        t.intentos_fallidos = (t.intentos_fallidos or 0) + 1
+        if t.intentos_fallidos >= settings.PIN_MAX_INTENTOS:
+            t.bloqueado_hasta = ahora + timedelta(minutes=settings.PIN_MINUTOS_BLOQUEO)
+            t.intentos_fallidos = 0
+        db.commit()
+        raise HTTPException(401, "Código incorrecto")
 
 
 @router.post("/api/tractoristas/verificar")
@@ -98,8 +130,10 @@ def verificar(data: TractoristaVerificar, db: Session = Depends(get_db)):
     t = _activo(db.scalar(select(Tractorista).where(Tractorista.cedula == data.cedula.strip())))
     if not t.username:
         raise HTTPException(403, "El tractorista no tiene usuario asignado. Pídalo a su supervisor.")
-    return {"valido": True, "username": t.username, "nombre": _nombre(t), "tiene_pin": bool(t.pin_hash),
-            "pin_expirado": bool(t.pin_hash and t.pin_expira and datetime.now() > t.pin_expira)}
+    # tiene_pin: tiene un codigo PROPIO; si no, debe ingresar el temporal del catalogo
+    return {"valido": True, "username": t.username, "nombre": _nombre(t),
+            "tiene_pin": bool(t.pin_hash) and not t.pin_temporal, "pin_expirado": False,
+            "requiere_temporal": bool(t.pin_temporal)}
 
 
 def _usuario_y_cedula(db: Session, data: TractoristaRegistro) -> Tractorista:
@@ -110,22 +144,35 @@ def _usuario_y_cedula(db: Session, data: TractoristaRegistro) -> Tractorista:
     return t
 
 
+SIN_TEMPORAL = "Pida un código temporal a su supervisor (Catálogos › Tractoristas)."
+
+
 @router.post("/api/tractoristas/registro")
 def registro(data: TractoristaRegistro, db: Session = Depends(get_db)):
-    """Primer PIN (o uno nuevo si el anterior expiro). Para cambiar un PIN
-    vigente se usa /recuperar."""
+    """Crea el codigo PROPIO: la primera vez (aun sin codigo) con usuario +
+    cedula; si ya tenia uno y lo olvido, solo con el codigo temporal que da el
+    catalogo (ya no se cambia por cuenta propia)."""
     t = _usuario_y_cedula(db, data)
-    if t.pin_hash and t.pin_expira and datetime.now() <= t.pin_expira:
-        raise HTTPException(409, "Ya tiene un código vigente. Use 'Olvidé mi código' para cambiarlo.")
+    ahora = datetime.now()
+    _bloqueado(t, ahora)
+    if not t.pin_hash:                       # primera vez: lo crea el mismo
+        _guardar_pin(db, t, data.pin)
+        return {"message": "Código registrado exitosamente", "nombre": _nombre(t), "username": t.username}
+    # Ya tenia codigo y lo olvido: solo con el temporal del catalogo
+    if not t.pin_temporal or not data.codigo_temporal:
+        raise HTTPException(403, SIN_TEMPORAL)
+    if t.pin_expira and ahora > t.pin_expira:
+        raise HTTPException(410, "El código temporal venció. " + SIN_TEMPORAL)
+    _comprobar(db, t, data.codigo_temporal, ahora)
     _guardar_pin(db, t, data.pin)
     return {"message": "Código registrado exitosamente", "nombre": _nombre(t), "username": t.username}
 
 
 @router.post("/api/tractoristas/recuperar")
-def recuperar(data: TractoristaRegistro, db: Session = Depends(get_db)):
-    t = _usuario_y_cedula(db, data)
-    _guardar_pin(db, t, data.pin)
-    return {"message": "Código actualizado exitosamente", "nombre": _nombre(t), "username": t.username}
+def recuperar():
+    """Ya no existe el cambio de codigo por cuenta propia (cualquiera con el
+    usuario y la cedula podia hacerlo)."""
+    raise HTTPException(403, SIN_TEMPORAL)
 
 
 @router.post("/api/tractoristas/login")
@@ -135,24 +182,39 @@ def login(data: TractoristaLogin, response: Response, db: Session = Depends(get_
         raise HTTPException(401, "Usuario no encontrado")
     _activo(t)
     ahora = datetime.now()
-    if t.bloqueado_hasta and ahora < t.bloqueado_hasta:
-        minutos = int((t.bloqueado_hasta - ahora).total_seconds() // 60) + 1
-        raise HTTPException(429, f"Demasiados intentos. Intente de nuevo en {minutos} min.")
+    _bloqueado(t, ahora)
     if not t.pin_hash:
         raise HTTPException(400, "No tiene código registrado. Debe registrarse primero.")
-    if t.pin_expira and ahora > t.pin_expira:
-        raise HTTPException(410, "Su código ha expirado. Debe generar uno nuevo.")
-    if not bcrypt.checkpw(data.pin.encode(), t.pin_hash.encode()):
-        t.intentos_fallidos = (t.intentos_fallidos or 0) + 1
-        if t.intentos_fallidos >= settings.PIN_MAX_INTENTOS:
-            t.bloqueado_hasta = ahora + timedelta(minutes=settings.PIN_MINUTOS_BLOQUEO)
-            t.intentos_fallidos = 0
+    if t.pin_temporal:
+        # Con el temporal no se entra: se usa para crear el codigo propio (/registro)
+        if t.pin_expira and ahora > t.pin_expira:
+            raise HTTPException(410, "El código temporal venció. " + SIN_TEMPORAL)
+        _comprobar(db, t, data.pin, ahora)
+        raise HTTPException(409, "Código temporal correcto: cree su código propio.")
+    _comprobar(db, t, data.pin, ahora)
+
+    # Telefono registrado: uno activo por tractorista. Otro telefono no entra
+    # hasta que den de baja el anterior en Catalogos > Tractoristas.
+    if not data.dispositivo or len(data.dispositivo) < 32:
+        raise HTTPException(400, "Actualice la aplicación: recargue la página con internet.")
+    llave = hashlib.sha256(data.dispositivo.encode()).hexdigest()
+    d = db.scalar(select(TractoristaDispositivo).where(TractoristaDispositivo.id_tractorista == t.id,
+                                                       TractoristaDispositivo.activo.is_(True)))
+    if d is None:
+        d = TractoristaDispositivo(id_tractorista=t.id, llave_hash=llave,
+                                   descripcion=(data.dispositivo_nombre or "Teléfono")[:200], ultimo_uso=ahora)
+        db.add(d)
+    elif d.llave_hash != llave:
         db.commit()
-        raise HTTPException(401, "Código incorrecto")
+        raise HTTPException(403, f"Su usuario ya tiene un teléfono registrado ({d.descripcion}, desde "
+                                 f"{d.fecha_alta:%d/%m/%Y}). Si cambió o perdió el celular, pida que lo den de "
+                                 "baja en Catálogos › Tractoristas.")
+    else:
+        d.ultimo_uso = ahora
     t.intentos_fallidos, t.bloqueado_hasta, t.ultimo_acceso = 0, None, ahora
     db.commit()
     nombre = _nombre(t)
-    token = emitir_sesion_tractorista(response, t, nombre)
+    token = emitir_sesion_tractorista(response, t, nombre, d.id)
     return {"token": token, "nombre": nombre, "username": t.username}
 
 

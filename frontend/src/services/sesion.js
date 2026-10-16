@@ -12,6 +12,7 @@
  */
 import { verComoActivo } from './verComo'
 import { huboActividad } from './actividad'
+import { borrarTelefonoDadoDeBaja, esTelefonoDeBaja } from './dispositivo.js'
 
 export const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8007').replace(/\/$/, '')
 export const HUB_API_URL = (import.meta.env.VITE_HUB_API_URL || 'https://hubbk.miraigprovefrut.com/api').replace(/\/$/, '')
@@ -50,6 +51,10 @@ window.fetch = async (input, init = {}) => {
   // Sin actividad reciente no se renueva (la sesion vence a las 10 h sin
   // actividad); al volver el usuario se renueva en main.jsx.
   if (res.status === 401 && !esTractorista() && !esTelefonoCampo() && !huboActividad()) return res
+  if (res.status === 401 && esTractorista()) {
+    const detalle = await res.clone().json().then(d => d.detail).catch(() => '')
+    if (esTelefonoDeBaja(detalle)) { await borrarTelefonoDadoDeBaja(); return res }
+  }
   if (res.status === 401 && !RUTAS_SIN_REINTENTO.some(r => url.includes(r))) {
     if (await renovarSesion()) {
       res = await fetchOriginal(input, opciones)
@@ -70,9 +75,9 @@ export function limpiarDatosSesion() {
 /**
  * Carga la sesion. Devuelve 'ok' | 'sin_sesion' | 'sin_acceso' | 'sin_conexion'.
  */
-// Con señal debil el servidor puede no responder nunca: se corta a los 8 s
+// Con señal debil el servidor puede no responder nunca: se corta a los 5 s
 // (y se entra sin conexion con la sesion guardada, ver main.jsx).
-const conLimite = (url, ms = 8000) => {
+const conLimite = (url, ms = 5000) => {
   const ctrl = new AbortController()
   const t = setTimeout(() => ctrl.abort(), ms)
   return fetch(url, { signal: ctrl.signal }).finally(() => clearTimeout(t))
@@ -83,13 +88,19 @@ export const haySesionGuardada = () => !!(localStorage.getItem('usuario_tipo') &
 
 export async function cargarSesion() {
   let res
+  // El celular ya sabe que no tiene red: no esperar el plazo
+  if (navigator.onLine === false) return 'sin_conexion'
   try {
     res = await conLimite(`${API_URL}/api/auth/me`)
     if (res.status === 401 && await renovarSesion()) res = await conLimite(`${API_URL}/api/auth/me`)
   } catch {
     return 'sin_conexion'
   }
-  if (res.status === 401) { limpiarDatosSesion(); return 'sin_sesion' }
+  if (res.status === 401) {
+    const detalle = await res.clone().json().then(d => d.detail).catch(() => '')
+    if (esTelefonoDeBaja(detalle)) { await borrarTelefonoDadoDeBaja(); return 'sin_sesion' }
+    limpiarDatosSesion(); return 'sin_sesion'
+  }
   if (res.status === 403) { limpiarDatosSesion(); return 'sin_acceso' }
   if (!res.ok) return 'sin_conexion'
   const d = await res.json()

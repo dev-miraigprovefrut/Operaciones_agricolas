@@ -1,6 +1,15 @@
 import { useState, useEffect, useRef } from 'react'
 import { useEmpresas } from '../services/useEmpresas'
 import { logoUrl } from '../services/empresasService'
+import { llaveDispositivo, nombreDispositivo, guardarIngresoOffline, hayIngresoOffline, ingresarOffline, nombreGuardado } from '../services/dispositivo'
+
+// fetch lanza TypeError cuando no hay red (o AbortError si la señal no da datos)
+const esSinRed = err => err instanceof TypeError || err?.name === 'AbortError'
+const conPlazo = (url, opciones, ms = 6000) => {
+  const ctrl = new AbortController()
+  const t = setTimeout(() => ctrl.abort(), ms)
+  return fetch(url, { ...opciones, signal: ctrl.signal }).finally(() => clearTimeout(t))
+}
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8007'
 const NUMERO_EMPRESA = '222'
@@ -14,7 +23,10 @@ function LoginTractorista() {
   const [nombreCompleto, setNombreCompleto] = useState('')
   const [tienePIN, setTienePIN] = useState(false)
   const [pinExpirado, setPinExpirado] = useState(false)
+  // Olvido su codigo: entra con el codigo TEMPORAL del catalogo y crea uno nuevo
   const [modoRecuperar, setModoRecuperar] = useState(false)
+  const [codigoTemporal, setCodigoTemporal] = useState('')
+  const [sinRed, setSinRed] = useState(false)
 
   const [pin, setPin] = useState('')
   const [pinConfirm, setPinConfirm] = useState('')
@@ -35,7 +47,7 @@ function LoginTractorista() {
       setCedula(savedCedula)
       // Verificar automáticamente
       setLoading(true)
-      fetch(`${API_URL}/api/tractoristas/verificar`, {
+      conPlazo(`${API_URL}/api/tractoristas/verificar`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username: savedUsername, cedula: savedCedula })
@@ -50,13 +62,20 @@ function LoginTractorista() {
           }
           setNombreCompleto(data.nombre || '')
           setTienePIN(data.tiene_pin)
-          setPinExpirado(data.pin_expirado)
-          if (data.pin_expirado) setModoRecuperar(true)
+          setModoRecuperar(!!data.requiere_temporal)
           setPaso(2)
         })
         .catch(() => {
-          localStorage.removeItem('tractorista_username')
-          localStorage.removeItem('tractorista_cedula')
+          // SIN INTERNET: no se borra nada; si este telefono ya entro antes, se
+          // ingresa con el codigo contra la huella guardada
+          if (hayIngresoOffline(savedUsername)) {
+            setSinRed(true)
+            setNombreCompleto(nombreGuardado())
+            setTienePIN(true)
+            setPaso(2)
+          } else {
+            setError('Sin conexión. La primera vez debe ingresar con internet.')
+          }
         })
         .finally(() => setLoading(false))
     }
@@ -98,21 +117,23 @@ function LoginTractorista() {
 
       setNombreCompleto(data.nombre || '')
       setTienePIN(data.tiene_pin)
-      setPinExpirado(data.pin_expirado)
-
-      if (data.pin_expirado) {
-        setModoRecuperar(true)
-      }
-
+      setModoRecuperar(!!data.requiere_temporal)
       setPaso(2)
     } catch (err) {
-      setError(err.message)
+      if (esSinRed(err) && hayIngresoOffline(username.trim())) {
+        setSinRed(true)
+        setNombreCompleto(nombreGuardado())
+        setTienePIN(true)
+        setPaso(2)
+        return
+      }
+      setError(esSinRed(err) ? 'Sin conexión. La primera vez debe ingresar con internet.' : err.message)
     } finally {
       setLoading(false)
     }
   }
 
-  const necesitaGenerarPIN = !tienePIN || pinExpirado || modoRecuperar
+  const necesitaGenerarPIN = !tienePIN || modoRecuperar
   const pinActual = necesitaGenerarPIN && pin.length === 4 ? pinConfirm : pin
   const pinLabel = necesitaGenerarPIN
     ? (pin.length === 4 ? 'Confirme su código' : 'Cree un código de 4 dígitos')
@@ -140,15 +161,16 @@ function LoginTractorista() {
   const handleGenerarCodigo = async () => {
     if (pin.length !== 4) return setError('El código debe ser de 4 dígitos')
     if (pin !== pinConfirm) return setError('Los códigos no coinciden')
+    if (modoRecuperar && codigoTemporal.length !== 6) return setError('Ingrese el código temporal de 6 dígitos que le dio su supervisor')
 
     setLoading(true)
     setError('')
     try {
-      const endpoint = modoRecuperar ? '/api/tractoristas/recuperar' : '/api/tractoristas/registro'
-      const res = await fetch(`${API_URL}${endpoint}`, {
+      const res = await fetch(`${API_URL}/api/tractoristas/registro`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: username.trim(), cedula: cedula.trim(), pin })
+        body: JSON.stringify({ username: username.trim(), cedula: cedula.trim(), pin,
+          codigo_temporal: modoRecuperar ? codigoTemporal : null })
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || 'Error al generar código')
@@ -157,6 +179,7 @@ function LoginTractorista() {
       setTienePIN(true)
       setPinExpirado(false)
       setModoRecuperar(false)
+      setCodigoTemporal('')
       limpiarPIN()
 
       setTimeout(() => {
@@ -174,23 +197,27 @@ function LoginTractorista() {
 
     setLoading(true)
     setError('')
+    const entrarSinRed = async () => {
+      await ingresarOffline(username.trim(), pin)
+      window.location.href = '/registrar/actividades'
+    }
     try {
-      const res = await fetch(`${API_URL}/api/tractoristas/login`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username: username.trim(), pin })
-      })
-      const data = await res.json()
-
-      if (res.status === 410) {
-        setPinExpirado(true)
-        setModoRecuperar(true)
-        limpiarPIN()
-        setError('Su código ha expirado. Genere uno nuevo.')
-        return
+      if (sinRed || navigator.onLine === false) { await entrarSinRed(); return }
+      let res
+      try {
+        res = await conPlazo(`${API_URL}/api/tractoristas/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username: username.trim(), pin,
+            dispositivo: llaveDispositivo(), dispositivo_nombre: nombreDispositivo() })
+        })
+      } catch (err) {
+        if (esSinRed(err) && hayIngresoOffline(username.trim())) { await entrarSinRed(); return }
+        throw esSinRed(err) ? new Error('Sin conexión. La primera vez debe ingresar con internet.') : err
       }
-
+      const data = await res.json()
       if (!res.ok) throw new Error(data.detail || 'Error al ingresar')
+      await guardarIngresoOffline(username.trim(), pin, data.nombre)
 
       // La sesion queda en una cookie HttpOnly del backend (no en localStorage)
       localStorage.setItem('usuario_nombre', data.nombre || '')
@@ -512,16 +539,34 @@ function LoginTractorista() {
                 </button>
               </div>
 
-              {/* Mensaje de expiración */}
-              {pinExpirado && !exito && (
+              {sinRed && (
                 <div style={styles.warningBox}>
-                  <i className='bx bx-time-five'></i>
-                  Su código ha expirado. Genere uno nuevo.
+                  <i className='bx bx-wifi-off'></i>
+                  Sin conexión: ingrese con su código. Lo registrado se enviará al volver la señal.
                 </div>
               )}
 
+              {/* Olvido su codigo: codigo TEMPORAL del supervisor (Catalogos > Tractoristas) */}
+              {modoRecuperar && !sinRed && (
+                <>
+                  <div style={styles.warningBox}>
+                    <i className='bx bx-key'></i>
+                    Ingrese el código temporal que le dio su supervisor y cree su código nuevo.
+                  </div>
+                  <div style={styles.inputGroup}>
+                    <label style={styles.label}>Código temporal (6 dígitos)</label>
+                    <div style={styles.inputWrap}>
+                      <i className='bx bx-key' style={styles.inputIcon}></i>
+                      <input id="codigo-temporal" type="text" inputMode="numeric" pattern="[0-9]*" maxLength={6}
+                        value={codigoTemporal} style={styles.input} autoComplete="one-time-code"
+                        onChange={e => { setCodigoTemporal(e.target.value.replace(/\D/g, '').slice(0, 6)); setError('') }} />
+                    </div>
+                  </div>
+                </>
+              )}
+
               {/* Botón recuperar */}
-              {tienePIN && !pinExpirado && !modoRecuperar && (
+              {tienePIN && !modoRecuperar && !sinRed && (
                 <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
                   <button onClick={() => { setModoRecuperar(true); limpiarPIN() }}
                     style={{
@@ -533,7 +578,7 @@ function LoginTractorista() {
                     onMouseLeave={e => e.target.style.opacity = '0.8'}
                   >
                     <i className='bx bx-refresh' style={{ marginRight: '0.25rem', verticalAlign: 'middle' }}></i>
-                    Olvidé mi código / Cambiar código
+                    Olvidé mi código (pida un código temporal a su supervisor)
                   </button>
                 </div>
               )}

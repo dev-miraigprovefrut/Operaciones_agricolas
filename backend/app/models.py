@@ -76,11 +76,27 @@ class Tractorista(_Empresa, Base):
     username = Column(String(100))
     pin_hash = Column(String(255))
     pin_expira = Column(DateTime)
+    pin_temporal = Column(Boolean, nullable=False, default=False)   # codigo dado por el catalogo
     intentos_fallidos = Column(Integer, nullable=False, default=0)
     bloqueado_hasta = Column(DateTime)
     ultimo_acceso = Column(DateTime)
     estado = Column(String(10), nullable=False, default="ACTIVO")
     fecha_creacion = Column(DateTime, server_default=func.now())
+
+
+class TractoristaDispositivo(_Empresa, Base):
+    """Telefono registrado del tractorista (uno activo por tractorista). La
+    llave vive solo en el telefono; aqui su SHA-256. De baja = deja de servir."""
+    __tablename__ = "tractorista_dispositivo"
+    id = Column("id_dispositivo", BigInteger, primary_key=True)
+    id_tractorista = Column(BigInteger, ForeignKey("tractorista.id_tractorista", ondelete="CASCADE"), nullable=False)
+    llave_hash = Column(String(64), nullable=False)
+    descripcion = Column(String(200))
+    fecha_alta = Column(DateTime, server_default=func.now())
+    ultimo_uso = Column(DateTime)
+    activo = Column(Boolean, nullable=False, default=True)
+    fecha_baja = Column(DateTime)
+    baja_por = Column(String(150))
 
 
 class CheckList(_Empresa, Base):

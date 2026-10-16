@@ -20,7 +20,7 @@ from sqlalchemy.orm import Session
 from .clients import hub, personas
 from .config import settings
 from .database import get_db
-from .models import Tractorista
+from .models import Tractorista, TractoristaDispositivo
 
 PESTANAS = [
     "registrar_actividades", "registrar_cosecha",
@@ -137,13 +137,18 @@ def formatear_nombre_tractorista(nombre_legal: str) -> str:
     return (nombre_legal or "").strip().title()
 
 
-def emitir_sesion_tractorista(response: Response, t: Tractorista, nombre: str) -> str:
+def emitir_sesion_tractorista(response: Response, t: Tractorista, nombre: str, id_dispositivo: int | None = None) -> str:
     """Pone la cookie de sesion y devuelve el token (el kiosko de la Raspberry
-    no tiene navegador con cookies: lo reenvia como Bearer)."""
-    exp = datetime.now(timezone.utc) + timedelta(hours=settings.TRACTORISTA_HORAS_SESION)
-    token = jwt.encode({"sub": t.username, "id_tractorista": t.id, "nombre": nombre, "tipo": TIPO_TRACTORISTA,
-                        "exp": exp}, _clave_tractorista(), algorithm="HS256")
-    response.set_cookie(settings.COOKIE_TRACTORISTA_NAME, token, max_age=settings.TRACTORISTA_HORAS_SESION * 3600,
+    no tiene navegador con cookies: lo reenvia como Bearer). Con telefono
+    registrado (id_dispositivo) la sesion es larga y queda atada a ese telefono."""
+    segundos = (settings.TRACTORISTA_DIAS_DISPOSITIVO * 86400 if id_dispositivo
+                else settings.TRACTORISTA_HORAS_SESION * 3600)
+    exp = datetime.now(timezone.utc) + timedelta(seconds=segundos)
+    claims = {"sub": t.username, "id_tractorista": t.id, "nombre": nombre, "tipo": TIPO_TRACTORISTA, "exp": exp}
+    if id_dispositivo:
+        claims["disp"] = id_dispositivo
+    token = jwt.encode(claims, _clave_tractorista(), algorithm="HS256")
+    response.set_cookie(settings.COOKIE_TRACTORISTA_NAME, token, max_age=segundos,
                         httponly=True, secure=settings.COOKIE_SECURE, samesite="lax", path="/",
                         domain=settings.COOKIE_DOMAIN or None)
     return token
@@ -151,6 +156,9 @@ def emitir_sesion_tractorista(response: Response, t: Tractorista, nombre: str) -
 
 def cerrar_sesion_tractorista(response: Response) -> None:
     response.delete_cookie(settings.COOKIE_TRACTORISTA_NAME, path="/", domain=settings.COOKIE_DOMAIN or None)
+
+
+TELEFONO_DE_BAJA = "Teléfono dado de baja"
 
 
 def _usuario_tractorista(token: str, db: Session) -> Usuario:
@@ -165,6 +173,10 @@ def _usuario_tractorista(token: str, db: Session) -> Usuario:
     t = db.get(Tractorista, p.get("id_tractorista"))
     if not t or t.estado != "ACTIVO":
         raise HTTPException(401, "Tractorista inactivo")
+    if p.get("disp"):
+        d = db.get(TractoristaDispositivo, p["disp"])
+        if not d or not d.activo or d.id_tractorista != t.id:
+            raise HTTPException(401, TELEFONO_DE_BAJA)
     return Usuario(username=t.username or t.cedula, tipo=TIPO_TRACTORISTA, nombre=p.get("nombre") or t.username,
                    rol="Tractorista", exp=p.get("exp"), pestanas=list(PESTANAS_TRACTORISTA),
                    id_tractorista=t.id, id_persona=t.id_persona, claims=p)

@@ -454,3 +454,23 @@ CREATE TABLE IF NOT EXISTS pesaje_recepcion (
     fecha_hora            TIMESTAMP    NOT NULL,
     activo                BOOLEAN      NOT NULL DEFAULT TRUE
 );
+
+-- ------------------------------------------ telefono registrado del tractorista
+-- Un telefono activo por tractorista (llave solo en el telefono; aqui su SHA-256).
+-- Codigo temporal: lo genera Catalogos > Tractoristas; ya no se cambia solo.
+ALTER TABLE tractorista ADD COLUMN IF NOT EXISTS pin_temporal BOOLEAN NOT NULL DEFAULT FALSE;
+CREATE TABLE IF NOT EXISTS tractorista_dispositivo (
+    id_dispositivo   BIGSERIAL    PRIMARY KEY,
+    tenant_id        BIGINT       NOT NULL DEFAULT 1,
+    numero_empresa   VARCHAR(10)  NOT NULL DEFAULT '222',
+    id_tractorista   BIGINT       NOT NULL REFERENCES tractorista (id_tractorista) ON DELETE CASCADE,
+    llave_hash       VARCHAR(64)  NOT NULL,
+    descripcion      VARCHAR(200),
+    fecha_alta       TIMESTAMP    NOT NULL DEFAULT now(),
+    ultimo_uso       TIMESTAMP,
+    activo           BOOLEAN      NOT NULL DEFAULT TRUE,
+    fecha_baja       TIMESTAMP,
+    baja_por         VARCHAR(150)
+);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_tractorista_dispositivo_activo
+    ON tractorista_dispositivo (id_tractorista) WHERE activo;

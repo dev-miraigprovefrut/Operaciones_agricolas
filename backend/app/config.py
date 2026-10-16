@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     TRACTORISTA_SECRET_KEY: str = ""
     COOKIE_TRACTORISTA_NAME: str = "oa_tractorista"
     TRACTORISTA_HORAS_SESION: int = 12
+    # Sesion de un telefono REGISTRADO: no se cierra por inactividad; dura estos
+    # dias y se renueva sola al usarla. Se corta al dar de baja el telefono.
+    TRACTORISTA_DIAS_DISPOSITIVO: int = 30
+    CODIGO_TEMPORAL_HORAS: int = 24
     COOKIE_DOMAIN: str = ""            # .miraigprovefrut.com en produccion; vacio en local
     COOKIE_SECURE: bool = False
     # Los kioskos de los tractores (Raspberry) aun no reenvian la sesion: con
