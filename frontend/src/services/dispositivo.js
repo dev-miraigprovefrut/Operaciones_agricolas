@@ -6,13 +6,13 @@
  *   tractorista; se da de baja en Catalogos > Tractoristas).
  * - Ingreso SIN internet: al entrar con internet se guarda una huella (PBKDF2)
  *   del codigo de 4 digitos; sin internet se compara contra ella. Nunca se
- *   guarda el codigo. 5 intentos fallidos bloquean 15 minutos.
+ *   guarda el codigo. 3 intentos fallidos bloquean 15 minutos.
  */
 const CLAVE_LLAVE = 'oa_dispositivo'
 const CLAVE_HUELLA = 'tractorista_pin_offline'
 const CLAVE_NOMBRE = 'tractorista_nombre'
 const CLAVE_FALLOS = 'tractorista_fallos_offline'
-const MAX_FALLOS = 5
+const MAX_FALLOS = 3
 const BLOQUEO_MS = 15 * 60 * 1000
 
 const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('')

@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 
 from ..auth import Usuario, requiere, requiere_admin, sesion_o_kiosko
-from ..clients import equipos, notificaciones
+from ..clients import equipos, notificaciones, servicio
 from ..comun import TZ_ECUADOR, ahora_ecuador
 from ..config import settings
 from ..database import get_db, get_mant_db
@@ -83,8 +83,18 @@ class TelemetriaIn(BaseModel):
     lon: Optional[float] = None
 
 
+def _cabecera_mant() -> dict:
+    """Token de servicio del modulo para Mantenimiento (antes iba sin token)."""
+    try:
+        return {"Authorization": f"Bearer {servicio.token()}"}
+    except Exception:  # noqa: BLE001
+        logger.warning("Sin token de servicio para Mantenimiento")
+        return {}
+
+
 def _mant(method: str, ruta: str, body=None):
-    resp = requests.request(method, f"{settings.MANTENIMIENTO_API_URL.rstrip('/')}{ruta}", json=body, timeout=10)
+    resp = requests.request(method, f"{settings.MANTENIMIENTO_API_URL.rstrip('/')}{ruta}", json=body, timeout=10,
+                            headers=_cabecera_mant())
     if not resp.ok:
         raise HTTPException(resp.status_code, resp.text[:300])
     return resp.json() if resp.content else None
@@ -98,7 +108,8 @@ def telemetria(data: TelemetriaIn, _: Usuario = Depends(_kiosko)):
     resultado = {}
     horas_reales = None
     try:
-        r = requests.get(f"{settings.MANTENIMIENTO_API_URL.rstrip('/')}/equipo-horas", timeout=10)
+        r = requests.get(f"{settings.MANTENIMIENTO_API_URL.rstrip('/')}/equipo-horas", timeout=10,
+                         headers=_cabecera_mant())
         if r.ok:
             for e in r.json():
                 if e.get("tractor_id") == tractor_id:
@@ -251,6 +262,7 @@ def crear_check(check: CheckListIn, db: Session = Depends(get_db), mant: Session
     if check.estado == "Activo":
         db.query(CheckList).filter(CheckList.tractor == check.tractor, CheckList.estado == "Activo") \
             .update({"estado": "Inactivo"})
+    check.usuario = _operador(user, check.usuario)
     nuevo = CheckList(usuario=check.usuario, fecha=ahora_ecuador(), tractor=check.tractor, apero=check.apero,
                       horometro_inicial=horometro, estado=check.estado, id_tractorista=user.id_tractorista,
                       **{c: getattr(check, c) for c in _CAMPOS_CHECK})
@@ -394,6 +406,33 @@ def _no_revisado(r: Registro) -> None:
         raise HTTPException(409, f"Actividad ya revisada por {quien} {cuando}: no se puede modificar".strip())
 
 
+def _gestor(user: Usuario) -> bool:
+    """Revisa/corrige actividades de todos (admins del modulo y revisores)."""
+    return user.tipo == "kiosko" or (not user.es_tractorista and user.puede("revisar_actividades"))
+
+
+def _operador(user: Usuario, pedido: str | None) -> str | None:
+    """Nombre del operador: el de la SESION (antes lo ponia el cliente). Los
+    gestores pueden registrar a nombre de otro operador; el kiosko anonimo manda
+    el suyo."""
+    if _gestor(user):
+        return pedido
+    return user.nombre or pedido
+
+
+def _es_mio(user: Usuario, r: Registro) -> bool:
+    if _gestor(user):
+        return True
+    if user.es_tractorista and r.id_tractorista:
+        return r.id_tractorista == user.id_tractorista
+    return (r.usuario or "").strip().lower() == (user.nombre or "").strip().lower()
+
+
+def _solo_mio(user: Usuario, r: Registro) -> None:
+    if not _es_mio(user, r):
+        raise HTTPException(403, "Solo puede modificar sus propias actividades")
+
+
 ESTADOS_REGISTRO = {"Pendiente", "Ejecutándose", "Pausado", "Finalizado", "Eliminado"}
 EQUIPOS = {"Tractores", "Drones"}
 
@@ -420,6 +459,7 @@ def crear_registro(registro: RegistroIn, db: Session = Depends(get_db), user: Us
         raise HTTPException(400, f"Estado inválido: {registro.estado}")
     if registro.equipo not in EQUIPOS:
         raise HTTPException(400, f"Equipo inválido: {registro.equipo}")
+    registro.usuario = _operador(user, registro.usuario)
     if registro.cliente_id:
         # Reintento de la cola offline: el mismo registro ya llego
         existente = db.scalar(select(Registro).where(Registro.cliente_id == registro.cliente_id))
@@ -507,25 +547,29 @@ def _calcular_tiempos(historial: list[dict]) -> tuple[float, float]:
 
 @router.put("/registros/{registro_id}", response_model=RegistroOut)
 def editar_registro(registro_id: int, registro: RegistroUpdate, db: Session = Depends(get_db),
-                    _: Usuario = Depends(_kiosko)):
+                    user: Usuario = Depends(_kiosko)):
     r = db.get(Registro, registro_id)
     if not r:
         raise HTTPException(404, "Registro no encontrado")
-    return _editar(db, r, registro)
+    _solo_mio(user, r)
+    return _editar(db, r, registro, user)
 
 
 @router.put("/registros/cliente/{cliente_id}", response_model=RegistroOut)
 def editar_registro_cliente(cliente_id: str, registro: RegistroUpdate, db: Session = Depends(get_db),
-                            _: Usuario = Depends(_kiosko)):
+                            user: Usuario = Depends(_kiosko)):
     """Igual que PUT /registros/{id} pero con el id que genero el celular (el
     registro pudo crearse sin internet y aun no conocer su id del servidor)."""
     r = db.scalar(select(Registro).where(Registro.cliente_id == cliente_id))
     if not r:
         raise HTTPException(404, "Registro no encontrado")
-    return _editar(db, r, registro)
+    _solo_mio(user, r)
+    return _editar(db, r, registro, user)
 
 
-def _editar(db: Session, r: Registro, registro: RegistroUpdate) -> Registro:
+def _editar(db: Session, r: Registro, registro: RegistroUpdate, user: Usuario) -> Registro:
+    if registro.usuario is not None:
+        registro.usuario = _operador(user, registro.usuario)
     if registro.estado is not None and registro.estado not in ESTADOS_REGISTRO:
         raise HTTPException(400, f"Estado inválido: {registro.estado}")
     # Idempotencia: reintento de la cola offline de un cambio ya aplicado.
@@ -568,18 +612,19 @@ def _editar(db: Session, r: Registro, registro: RegistroUpdate) -> Registro:
 
 
 @router.delete("/registros/cliente/{cliente_id}")
-def eliminar_registro_cliente(cliente_id: str, db: Session = Depends(get_db), _: Usuario = Depends(_kiosko)):
+def eliminar_registro_cliente(cliente_id: str, db: Session = Depends(get_db), user: Usuario = Depends(_kiosko)):
     r = db.scalar(select(Registro).where(Registro.cliente_id == cliente_id))
     if not r:
         raise HTTPException(404, "Registro no encontrado")
-    return eliminar_registro(r.id, db, _)
+    return eliminar_registro(r.id, db, user)
 
 
 @router.delete("/registros/{registro_id}")
-def eliminar_registro(registro_id: int, db: Session = Depends(get_db), _: Usuario = Depends(_kiosko)):
+def eliminar_registro(registro_id: int, db: Session = Depends(get_db), user: Usuario = Depends(_kiosko)):
     r = db.get(Registro, registro_id)
     if not r:
         raise HTTPException(404, "Registro no encontrado")
+    _solo_mio(user, r)
     if r.estado == "Eliminado":         # reintento de la cola offline
         return {"message": "Registro eliminado"}
     _no_revisado(r)

@@ -32,6 +32,7 @@ _s3 = boto3.client("s3", **settings.aws_kwargs())
 S3_CARPETA = "reportesseguridadcamiones"
 
 LEER = requiere("registrar_cosecha", "reportes_cosecha", "reportes_seguridad")
+GESTOR = "reportes_cosecha"     # corrige/elimina fichas de todos (los admins tambien)
 ESCRIBIR = requiere("registrar_cosecha", "reportes_cosecha")
 SEGURIDAD = requiere("registrar_cosecha", "reportes_cosecha", "reportes_seguridad")
 
@@ -67,10 +68,12 @@ class FotoPendienteIn(BaseModel):
 
 @router.post("/cosecha-transp/foto-pendiente")
 def subir_foto_pendiente(data: FotoPendienteIn, request: Request, db: Session = Depends(get_db),
-                         _: Usuario = Depends(SEGURIDAD)):
+                         user: Usuario = Depends(SEGURIDAD)):
     """Foto de seguridad tomada SIN INTERNET: llega despues por la cola del
     celular (en base64), se sube a S3 y se agrega a seg_foto_url de la ficha."""
     id_t = _resolver_transporte(db, data.id_transporte, data.cliente_transporte)
+    if not user.puede("reportes_seguridad"):
+        _ficha_propia(db, user, id_t)
     cab, _, datos = data.imagen.partition(",")
     tipo = "image/png" if "png" in cab else "image/webp" if "webp" in cab else "image/jpeg"
     try:
@@ -179,6 +182,52 @@ def _resolver_transporte(db: Session, id_transporte: Optional[int], cliente: Opt
     raise HTTPException(404, "Ficha no encontrada")
 
 
+def _auditar(db: Session, id_t: int | None, accion: str, user: Usuario, antes=None, despues=None) -> None:
+    """Quien cambio que en una ficha (estado, eliminar, corregir, peso, recibir)."""
+    db.execute(text("""INSERT INTO cosecha_auditoria (id_cosecha_transporte, accion, antes, despues, usuario, usuario_nombre)
+        VALUES (:t, :a, CAST(:antes AS JSONB), CAST(:despues AS JSONB), :u, :n)"""),
+        {"t": id_t, "a": accion, "antes": json.dumps(antes, default=str) if antes is not None else None,
+         "despues": json.dumps(despues, default=str) if despues is not None else None,
+         "u": user.username, "n": user.nombre})
+
+
+def _ficha(db: Session, id_t: int) -> dict:
+    f = db.execute(text("""SELECT id_cosecha_transporte AS id, estado, creado_por, id_supervisor
+        FROM cosecha_transporte WHERE id_cosecha_transporte = :id"""), {"id": id_t}).mappings().first()
+    if not f:
+        raise HTTPException(404, "Ficha no encontrada")
+    return dict(f)
+
+
+def _es_gestor(user: Usuario) -> bool:
+    return user.puede(GESTOR)
+
+
+def _ficha_propia(db: Session, user: Usuario, id_t: int, estados: tuple[str, ...] | None = None) -> dict:
+    """La ficha existe y el usuario puede tocarla: un gestor (reportes de
+    cosecha / admin) todas; un supervisor solo las suyas (creadas por el o de su
+    registro de supervisor) y, si se indica, solo en esos estados."""
+    f = _ficha(db, id_t)
+    if _es_gestor(user):
+        return f
+    if f["creado_por"] != user.username and not (f["id_supervisor"] and f["id_supervisor"] == _id_supervisor_de(db, user)):
+        raise HTTPException(403, "La ficha no es suya")
+    if estados and (f["estado"] or "Activo") not in estados:
+        raise HTTPException(409, f"La ficha está {f['estado']}: ya no se puede modificar")
+    return f
+
+
+def _sin_peso_ot(db: Session, id_t: int | None = None, id_producto: int | None = None) -> None:
+    """Lo pesado por el sistema OT no se borra desde aqui (se maneja en /api/pesaje)."""
+    q = """SELECT 1 FROM pesaje pz JOIN cosecha c ON c.id_cosecha = pz.id_cosecha WHERE pz.estado = 'ACTIVO' AND """
+    if id_producto is not None:
+        hay = db.execute(text(q + "c.id_cosecha = :x LIMIT 1"), {"x": id_producto}).first()
+    else:
+        hay = db.execute(text(q + "c.id_cosecha_transporte = :x LIMIT 1"), {"x": id_t}).first()
+    if hay:
+        raise HTTPException(409, "Tiene pesos del sistema OT: no se puede modificar aquí")
+
+
 def _id_supervisor_de(db: Session, user: Usuario) -> int | None:
     """Registro de supervisor del usuario: por cedula (maestro Personas); si no
     hay, por nombre (como antes)."""
@@ -282,9 +331,17 @@ class ProductosIn(BaseModel):
 
 
 @router.post("/cosecha-productos")
-def guardar_productos(data: ProductosIn, db: Session = Depends(get_db), _: Usuario = Depends(ESCRIBIR)):
+def guardar_productos(data: ProductosIn, db: Session = Depends(get_db), user: Usuario = Depends(ESCRIBIR)):
     if data.cliente_transporte and not data.id_transporte:
         data.id_transporte = _resolver_transporte(db, None, data.cliente_transporte)
+    if data.id_transporte:
+        f = _ficha_propia(db, user, data.id_transporte)
+        if (f["estado"] or "Activo") not in ("Activo", "Eliminado"):
+            ya = {r[0] for r in db.execute(text(
+                "SELECT orden_cultivo FROM cosecha WHERE id_cosecha_transporte = :id"), {"id": data.id_transporte})}
+            if all(p.orden_cultivo in ya for p in data.productos):   # reintento de la cola: ya estaban
+                return {"message": "0 nuevos, 0 actualizados"}
+            raise HTTPException(409, f"La ficha está {f['estado']}: ya no se pueden agregar productos")
     existentes = {}
     if data.id_transporte:
         existentes = {r[1]: r[0] for r in db.execute(text(
@@ -316,7 +373,9 @@ def guardar_productos(data: ProductosIn, db: Session = Depends(get_db), _: Usuar
 
 
 @router.get("/cosecha-productos/{id_transporte}")
-def ver_productos(id_transporte: int, db: Session = Depends(get_db), _: Usuario = Depends(LEER)):
+def ver_productos(id_transporte: int, db: Session = Depends(get_db), user: Usuario = Depends(LEER)):
+    if not user.puede("reportes_cosecha", "reportes_seguridad"):
+        _ficha_propia(db, user, id_transporte)
     filas = [dict(r) for r in db.execute(text(
         f"SELECT {_PRODUCTO_SQL} FROM cosecha WHERE id_cosecha_transporte = :id ORDER BY id_cosecha"),
         {"id": id_transporte}).mappings()]
@@ -332,8 +391,14 @@ def ver_productos(id_transporte: int, db: Session = Depends(get_db), _: Usuario 
 
 
 @router.delete("/cosecha-productos/item/{item_id}")
-def eliminar_producto(item_id: int, db: Session = Depends(get_db), _: Usuario = Depends(ESCRIBIR)):
+def eliminar_producto(item_id: int, db: Session = Depends(get_db), user: Usuario = Depends(ESCRIBIR)):
+    p = db.execute(text(f"SELECT {_PRODUCTO_SQL} FROM cosecha WHERE id_cosecha = :id"), {"id": item_id}).mappings().first()
+    if not p:
+        return {"message": "Producto eliminado"}      # ya no estaba (reintento)
+    _ficha_propia(db, user, p["id_transporte"], ("Activo",))
+    _sin_peso_ot(db, id_producto=item_id)
     db.execute(text("DELETE FROM cosecha WHERE id_cosecha = :id"), {"id": item_id})
+    _auditar(db, p["id_transporte"], "PRODUCTO_ELIMINADO", user, antes=dict(p))
     db.commit()
     return {"message": "Producto eliminado"}
 
@@ -341,10 +406,11 @@ def eliminar_producto(item_id: int, db: Session = Depends(get_db), _: Usuario = 
 @router.delete("/cosecha-productos/orden/{orden_cultivo}")
 def eliminar_producto_por_orden(orden_cultivo: str, id_transporte: Optional[int] = None,
                                 cliente_transporte: Optional[str] = None, db: Session = Depends(get_db),
-                                _: Usuario = Depends(ESCRIBIR)):
+                                user: Usuario = Depends(ESCRIBIR)):
     """Quita un producto (orden de cultivo) de una ficha aun no enviada; sirve
     para productos agregados sin internet (no tienen id todavia)."""
     id_t = _resolver_transporte(db, id_transporte, cliente_transporte)
+    _ficha_propia(db, user, id_t, ("Activo",))
     db.execute(text("""DELETE FROM cosecha WHERE id_cosecha_transporte = :t AND orden_cultivo = :o
         AND COALESCE(estado, 'Cargado') = 'Cargado'"""), {"t": id_t, "o": orden_cultivo})
     db.commit()
@@ -352,8 +418,24 @@ def eliminar_producto_por_orden(orden_cultivo: str, id_transporte: Optional[int]
 
 
 @router.put("/cosecha-productos/item/{item_id}/peso")
-def poner_peso(item_id: int, data: dict, db: Session = Depends(get_db), _: Usuario = Depends(ESCRIBIR)):
-    peso, num_ficha = data.get("peso_neto", 0), data.get("num_ficha")
+def poner_peso(item_id: int, data: dict, db: Session = Depends(get_db), user: Usuario = Depends(ESCRIBIR)):
+    try:
+        peso = float(data.get("peso_neto", 0) or 0)
+    except (TypeError, ValueError):
+        raise HTTPException(422, "Peso inválido")
+    if not 0 <= peso < 100000:
+        raise HTTPException(422, "Peso fuera de rango")
+    num_ficha = data.get("num_ficha")
+    if num_ficha is not None:
+        num_ficha = str(num_ficha).strip()[:50]
+    p = db.execute(text("SELECT id_cosecha_transporte, peso, num_ficha FROM cosecha WHERE id_cosecha = :id"),
+                   {"id": item_id}).first()
+    if not p:
+        raise HTTPException(404, "Producto no encontrado")
+    _ficha_propia(db, user, p[0], ("Enviado", "Corregida", "Recibido"))
+    _sin_peso_ot(db, id_producto=item_id)
+    _auditar(db, p[0], "PESO", user, antes={"id_cosecha": item_id, "peso": p[1], "num_ficha": p[2]},
+             despues={"id_cosecha": item_id, "peso": peso, "num_ficha": num_ficha})
     if num_ficha is not None:
         db.execute(text("UPDATE cosecha SET peso = :p, num_ficha = :n WHERE id_cosecha = :id"),
                    {"p": peso, "n": num_ficha, "id": item_id})
@@ -370,13 +452,13 @@ def _existe(result) -> None:
 
 
 @router.put("/cosecha-transp/cliente/{cliente_id}/enviar")
-def enviar_camion_cliente(cliente_id: str, data: dict, db: Session = Depends(get_db), _: Usuario = Depends(ESCRIBIR)):
+def enviar_camion_cliente(cliente_id: str, data: dict, db: Session = Depends(get_db), user: Usuario = Depends(ESCRIBIR)):
     """Enviar una ficha creada SIN INTERNET (por el id del celular)."""
-    return enviar_camion(_resolver_transporte(db, None, cliente_id), data, db, _)
+    return enviar_camion(_resolver_transporte(db, None, cliente_id), data, db, user)
 
 
 @router.put("/cosecha-transp/{id_transp}/enviar")
-def enviar_camion(id_transp: int, data: dict, db: Session = Depends(get_db), _: Usuario = Depends(ESCRIBIR)):
+def enviar_camion(id_transp: int, data: dict, db: Session = Depends(get_db), user: Usuario = Depends(ESCRIBIR)):
     """Marca la ficha como Enviada (hora de salida = la real, aunque llegue tarde
     por la cola) y numera sus productos si aun no tienen numero."""
     fecha = None
@@ -391,9 +473,11 @@ def enviar_camion(id_transp: int, data: dict, db: Session = Depends(get_db), _: 
         raise HTTPException(404, "Ficha no encontrada")
     if estado in ("Enviado", "Recibido"):       # reintento de la cola offline
         return {"message": "Camión enviado", "numeracion": _numerar(db, id_transp)}
+    _ficha_propia(db, user, id_transp, ("Activo",))
     _existe(db.execute(text("""UPDATE cosecha_transporte SET fecha_salida = :f, estado = 'Enviado', planta = :planta
         WHERE id_cosecha_transporte = :id"""), {"id": id_transp, "planta": data.get("planta", ""), "f": _fecha_evento(fecha)}))
-    usuario = data.get("usuario", "")
+    # Responsable = quien envia (sesion); antes lo ponia el cliente
+    usuario = user.nombre or data.get("usuario", "")
     if usuario:
         db.execute(text("UPDATE cosecha SET responsable = :u, estado = 'Enviado' WHERE id_cosecha_transporte = :id"),
                    {"u": usuario, "id": id_transp})
@@ -404,9 +488,16 @@ def enviar_camion(id_transp: int, data: dict, db: Session = Depends(get_db), _: 
 
 
 @router.put("/cosecha-transp/{id_transp}/finalizar")
-def finalizar(id_transp: int, data: dict, db: Session = Depends(get_db), _: Usuario = Depends(ESCRIBIR)):
+def finalizar(id_transp: int, data: dict, db: Session = Depends(get_db), user: Usuario = Depends(ESCRIBIR)):
+    f = _ficha(db, id_transp)
+    if f["estado"] == "Recibido":                  # reintento
+        return {"message": "Ficha finalizada"}
+    _ficha_propia(db, user, id_transp, ("Enviado", "Corregida"))
+    if f["estado"] not in ("Enviado", "Corregida"):
+        raise HTTPException(409, f"La ficha está {f['estado']}: no se puede recibir")
     _existe(db.execute(text("""UPDATE cosecha_transporte SET estado = 'Recibido', recibido_por = :r
-        WHERE id_cosecha_transporte = :id"""), {"id": id_transp, "r": data.get("recibido_por", "")}))
+        WHERE id_cosecha_transporte = :id"""), {"id": id_transp, "r": user.nombre or data.get("recibido_por", "")}))
+    _auditar(db, id_transp, "RECIBIDO", user, antes={"estado": f["estado"]}, despues={"estado": "Recibido"})
     db.commit()
     return {"message": "Ficha finalizada"}
 
@@ -470,7 +561,7 @@ def _cambios(orig: dict, camion: dict, prods: list[dict], editados: list | None)
 
 @router.post("/cosecha-transp/{id_transp}/corregir")
 def corregir(id_transp: int, data: Optional[dict] = None, db: Session = Depends(get_db),
-             _: Usuario = Depends(ESCRIBIR)):
+             user: Usuario = Depends(ESCRIBIR)):
     """Marca la ficha original como 'Falla' y crea una copia 'Corregida' con los
     datos editados (y la observacion de que cambio)."""
     orig = db.execute(text("SELECT * FROM cosecha_transporte WHERE id_cosecha_transporte = :id"),
@@ -482,7 +573,13 @@ def corregir(id_transp: int, data: Optional[dict] = None, db: Session = Depends(
     editados = (data or {}).get("productos")
     prods = [dict(p) for p in db.execute(text(
         "SELECT * FROM cosecha WHERE id_cosecha_transporte = :id ORDER BY id_cosecha"), {"id": id_transp}).mappings()]
-    obs = "; ".join(_cambios(orig, camion, prods, editados)) or "Corrección sin cambios detectados"
+    _ficha_propia(db, user, id_transp)
+    if orig.get("estado") in ("Falla", "Eliminado"):
+        raise HTTPException(409, f"La ficha está {orig.get('estado')}: no se puede corregir")
+    try:
+        obs = "; ".join(_cambios(orig, camion, prods, editados)) or "Corrección sin cambios detectados"
+    except (TypeError, ValueError):
+        raise HTTPException(422, "Bines o peso inválidos")
     try:
         db.execute(text("UPDATE cosecha_transporte SET estado = 'Falla', observacion_falla = :o "
                         "WHERE id_cosecha_transporte = :id"), {"id": id_transp, "o": obs})
@@ -515,6 +612,8 @@ def corregir(id_transp: int, data: Optional[dict] = None, db: Session = Depends(
                 "centro_costos": p.get("centro_costos") or "", "ubicacion": p.get("ubicacion") or "",
                 "responsable": p.get("responsable") or "", "peso": float(e.get("peso", p.get("peso", 0)) or 0),
                 "num_ficha": e.get("num_ficha", p.get("num_ficha", "")), "numeracion": p.get("numeracion") or ""})
+        _auditar(db, id_transp, "CORREGIDA", user, antes={"estado": orig.get("estado")},
+                 despues={"nueva_ficha": nuevo_id, "observacion": obs})
         db.commit()
     except Exception:
         db.rollback()
@@ -523,17 +622,18 @@ def corregir(id_transp: int, data: Optional[dict] = None, db: Session = Depends(
 
 
 @router.delete("/cosecha-transp/cliente/{cliente_id}")
-def eliminar_ficha_cliente(cliente_id: str, db: Session = Depends(get_db), _: Usuario = Depends(ESCRIBIR)):
+def eliminar_ficha_cliente(cliente_id: str, db: Session = Depends(get_db), user: Usuario = Depends(ESCRIBIR)):
     id_t = db.execute(text("SELECT id_cosecha_transporte FROM cosecha_transporte WHERE cliente_id = :c"),
                       {"c": cliente_id}).scalar()
     if not id_t:
         return {"ok": True}       # nunca llego o ya se borro (reintento)
-    return eliminar_ficha(id_t, db, _)
+    return eliminar_ficha(id_t, db, user)
 
 
 @router.delete("/cosecha-transp/{id_transp}")
-def eliminar_ficha(id_transp: int, db: Session = Depends(get_db), _: Usuario = Depends(ESCRIBIR)):
+def eliminar_ficha(id_transp: int, db: Session = Depends(get_db), user: Usuario = Depends(ESCRIBIR)):
     """Borra una ficha SOLO si aun no tiene productos (iniciada por error)."""
+    _ficha_propia(db, user, id_transp)
     if db.execute(text("SELECT count(*) FROM cosecha WHERE id_cosecha_transporte = :id"), {"id": id_transp}).scalar():
         raise HTTPException(400, "No se puede eliminar: la ficha ya tiene productos agregados.")
     _existe(db.execute(text("DELETE FROM cosecha_transporte WHERE id_cosecha_transporte = :id"), {"id": id_transp}))
@@ -542,21 +642,40 @@ def eliminar_ficha(id_transp: int, db: Session = Depends(get_db), _: Usuario = D
 
 
 @router.patch("/cosecha-transp/{id_transp}/estado")
-def cambiar_estado(id_transp: int, data: dict, db: Session = Depends(get_db), _: Usuario = Depends(ESCRIBIR)):
+def cambiar_estado(id_transp: int, data: dict, db: Session = Depends(get_db), user: Usuario = Depends(ESCRIBIR)):
+    """Solo ELIMINAR o DESACTIVAR (lo que usa la app): un gestor cualquier
+    ficha, un supervisor solo las suyas aun Activas. Cualquier otro cambio de
+    estado (p.ej. revertir un Recibido) solo un admin del modulo. Queda en la
+    auditoria quien y cuando."""
     nuevo = data.get("estado", "")
     if nuevo not in ("Activo", "Enviado", "Recibido", "Desactivado", "Eliminado"):
         raise HTTPException(400, f"Estado inválido: {nuevo}")
+    f = _ficha(db, id_transp)
+    if f["estado"] == nuevo:
+        return {"ok": True, "estado": nuevo}
+    if nuevo in ("Eliminado", "Desactivado"):
+        _ficha_propia(db, user, id_transp, ("Activo",))
+        _sin_peso_ot(db, id_t=id_transp)
+    elif not user.es_admin:
+        raise HTTPException(403, "Solo un administrador del módulo puede cambiar a ese estado")
     _existe(db.execute(text("UPDATE cosecha_transporte SET estado = :e WHERE id_cosecha_transporte = :id"),
                        {"e": nuevo, "id": id_transp}))
+    _auditar(db, id_transp, "ESTADO", user, antes={"estado": f["estado"]}, despues={"estado": nuevo})
     db.commit()
     return {"ok": True, "estado": nuevo}
 
 
 @router.patch("/cosecha-transp/{id_transp}/fecha-salida")
-def poner_fecha_salida(id_transp: int, data: dict, db: Session = Depends(get_db), _: Usuario = Depends(ESCRIBIR)):
+def poner_fecha_salida(id_transp: int, data: dict, db: Session = Depends(get_db), user: Usuario = Depends(ESCRIBIR)):
     fecha = data.get("fecha_salida", "")
     if not fecha:
         raise HTTPException(400, "fecha_salida requerida")
+    try:
+        datetime.fromisoformat(str(fecha))
+    except ValueError:
+        raise HTTPException(422, "fecha_salida inválida (AAAA-MM-DDTHH:MM)")
+    f = _ficha_propia(db, user, id_transp)
+    _auditar(db, id_transp, "FECHA_SALIDA", user, antes={"estado": f["estado"]}, despues={"fecha_salida": fecha})
     _existe(db.execute(text("""UPDATE cosecha_transporte SET fecha_salida = :f,
         estado = CASE WHEN estado = 'Activo' THEN 'Enviado' ELSE estado END WHERE id_cosecha_transporte = :id"""),
         {"f": fecha, "id": id_transp}))

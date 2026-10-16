@@ -474,3 +474,17 @@ CREATE TABLE IF NOT EXISTS tractorista_dispositivo (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS uq_tractorista_dispositivo_activo
     ON tractorista_dispositivo (id_tractorista) WHERE activo;
+
+-- --------------------------------------------- auditoria de fichas de cosecha
+-- Quien cambio que: estado, eliminar producto, corregir, peso, recibir, fecha de salida.
+CREATE TABLE IF NOT EXISTS cosecha_auditoria (
+    id_auditoria          BIGSERIAL    PRIMARY KEY,
+    id_cosecha_transporte BIGINT,
+    accion                VARCHAR(30)  NOT NULL,
+    antes                 JSONB,
+    despues               JSONB,
+    usuario               VARCHAR(150) NOT NULL,
+    usuario_nombre        VARCHAR(200),
+    fecha                 TIMESTAMP    NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS ix_cosecha_auditoria ON cosecha_auditoria (id_cosecha_transporte);

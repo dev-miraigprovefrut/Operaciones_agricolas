@@ -50,7 +50,7 @@ class Settings(BaseSettings):
     # esto en True, los endpoints de registrar actividades aceptan llamadas sin
     # credenciales (como antes). Apagar cuando los kioskos se actualicen.
     KIOSKO_SIN_SESION: bool = True
-    PIN_MAX_INTENTOS: int = 5
+    PIN_MAX_INTENTOS: int = 3
     PIN_MINUTOS_BLOQUEO: int = 15
 
     # Servicios del ecosistema (por API, nunca por su base)
