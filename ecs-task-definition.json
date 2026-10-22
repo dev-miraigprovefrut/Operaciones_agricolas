@@ -31,10 +31,6 @@
           "value": "operaciones_agricolas"
         },
         {
-          "name": "DB_USER",
-          "value": "adminmirai"
-        },
-        {
           "name": "NUMERO_EMPRESA",
           "value": "222"
         },
@@ -133,10 +129,6 @@
           "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:mirai-core/db:host::"
         },
         {
-          "name": "DB_PASSWORD",
-          "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:mirai-core/db:password::"
-        },
-        {
           "name": "SECRET_KEY",
           "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:hub/django/secret-key-R7IfKM"
         },
@@ -159,6 +151,14 @@
         {
           "name": "POSTGRES_PASSWORD",
           "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:mantenimiento/postgres-credentials-3lJAMD:password::"
+        },
+        {
+          "name": "DB_USER",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:mirai-core/app/operaciones_agricolas-8I9w2j:DB_USER::"
+        },
+        {
+          "name": "DB_PASSWORD",
+          "valueFrom": "arn:aws:secretsmanager:us-east-1:892302937756:secret:mirai-core/app/operaciones_agricolas-8I9w2j:DB_PASSWORD::"
         }
       ],
       "logConfiguration": {
