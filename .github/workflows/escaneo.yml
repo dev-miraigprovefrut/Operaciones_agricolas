@@ -1,0 +1,74 @@
+# Escaneo de vulnerabilidades (CICD-001 / DEV-005). No despliega nada: AVISA.
+#   codigo:  librerias declaradas (requirements, package-lock...) en cada push y PR.
+#   imagen:  la imagen que CORRE en produccion (ECR :latest), con sus paquetes del sistema (Java, etc.),
+#            todos los lunes aunque nadie toque el codigo (las vulnerabilidades nuevas aparecen despues).
+# Falla si hay vulnerabilidades ALTAS o CRITICAS que ya tienen correccion: GitHub avisa por correo.
+# Arreglo habitual: actualizar la libreria, o redesplegar (la imagen se reconstruye con los parches).
+name: Escaneo de vulnerabilidades
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '0 13 * * 1'    # lunes 08:00 Ecuador
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  codigo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Librerias del codigo (trivy)
+        run: |
+          mkdir -p reportes
+          docker run --rm -v "$PWD:/repo" aquasec/trivy:0.58.1 fs /repo --quiet --scanners vuln \
+            --severity HIGH,CRITICAL --ignore-unfixed --format table --output /repo/reportes/codigo.txt
+          cat reportes/codigo.txt
+          docker run --rm -v "$PWD:/repo" aquasec/trivy:0.58.1 fs /repo --quiet --scanners vuln \
+            --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 > /dev/null
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: escaneo-codigo-${{ github.sha }}
+          path: reportes/
+          retention-days: 90
+
+  imagen:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        repositorio: [operacionesagricolas_master]
+    steps:
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::892302937756:role/github-deploy
+          role-session-name: gh-escaneo-${{ github.run_id }}
+          aws-region: us-east-1
+      - id: ecr
+        uses: aws-actions/amazon-ecr-login@v2
+      - name: Imagen en produccion (trivy)
+        env:
+          IMAGEN: ${{ steps.ecr.outputs.registry }}/${{ matrix.repositorio }}:latest
+        run: |
+          mkdir -p reportes
+          docker pull "$IMAGEN"
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/reportes:/out" aquasec/trivy:0.58.1 \
+            image --quiet --format cyclonedx --output /out/sbom.json "$IMAGEN"
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v "$PWD/reportes:/out" aquasec/trivy:0.58.1 \
+            image --quiet --severity HIGH,CRITICAL --ignore-unfixed --format table --output /out/imagen.txt "$IMAGEN"
+          cat reportes/imagen.txt
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock aquasec/trivy:0.58.1 \
+            image --quiet --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 "$IMAGEN" > /dev/null
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: escaneo-${{ matrix.repositorio }}-${{ github.run_id }}
+          path: reportes/
+          retention-days: 90
