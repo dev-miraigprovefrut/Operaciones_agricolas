@@ -39,7 +39,8 @@ jobs:
           retention-days: 90
 
   imagen:
-    if: github.event_name != 'pull_request'
+    # solo el lunes (o a mano): en un push la imagen nueva aun no esta desplegada y avisaria de la vieja
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
