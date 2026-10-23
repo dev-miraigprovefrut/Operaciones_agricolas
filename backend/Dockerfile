@@ -1,4 +1,6 @@
 FROM python:3.11-slim-bookworm
+# setuptools/pip del Python base traen librerias con vulnerabilidades (escaneo trivy): se actualizan
+RUN pip install --no-cache-dir --upgrade pip setuptools
 
 WORKDIR /app
 
