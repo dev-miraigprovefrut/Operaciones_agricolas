@@ -32,7 +32,9 @@ from ..sync import fichas as sync
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/fichas-aplicacion")
 _acceso = sesion_o_kiosko()                                  # bitacora tractor / dron y reportes
-_gestion = requiere("reportes_actividades", "revisar_actividades")
+# Revisar, corregir y sincronizar con Jireh: permiso propio (antes colgaba de
+# reportes de actividades / revisar horas)
+_gestion = requiere("reportes_fichas_aplicacion")
 
 ESTADOS_ERP = {"PE": "Pendiente de revisión", "AU": "Autorizada", "CN": "Confirmada", "FA": "FA"}
 _REFRESCO = timedelta(minutes=15)

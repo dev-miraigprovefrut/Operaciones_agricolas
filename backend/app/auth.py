@@ -28,7 +28,8 @@ PESTANAS = [
     "reportes_actividades", "reportes_cosecha", "reportes_seguridad",
     "revisar_actividades",   # revisar/aprobar las horas de los tractoristas
     "bitacora_dron",         # bitacora de actividades de drones (usuarios del HUB)
-    "pesaje_cosecha",        # sistema de bascula OT: ver fichas y subir/editar/eliminar pesos
+    "pesaje_cosecha",        # sistema de bascula OT (API, no es una pantalla): ver fichas y subir/editar/eliminar pesos
+    "reportes_fichas_aplicacion",   # Reportes > Fichas de aplicacion: revisar, corregir y sincronizar con Jireh
 ]
 PESTANAS_TRACTORISTA = ["registrar_actividades"]
 TIPO_TRACTORISTA = "tractorista"

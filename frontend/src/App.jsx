@@ -53,6 +53,7 @@ function DefaultRedirect() {
     reportes_actividades: '/reportes/actividades',
     reportes_cosecha: '/reportes/cosecha',
     reportes_seguridad: '/reportes/seguridad',
+    reportes_fichas_aplicacion: '/reportes/fichas-aplicacion',
   }
 
   for (const [permiso, ruta] of Object.entries(rutasPorPermiso)) {
