@@ -60,6 +60,10 @@ function LoginTractorista() {
             localStorage.removeItem('tractorista_cedula')
             return
           }
+          if (data.username) {
+            setUsername(data.username)
+            localStorage.setItem('tractorista_username', data.username)
+          }
           setNombreCompleto(data.nombre || '')
           setTienePIN(data.tiene_pin)
           setModoRecuperar(!!data.requiere_temporal)
@@ -115,6 +119,9 @@ function LoginTractorista() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.detail || 'Error de verificación')
 
+      // El usuario REAL es el de la cedula (si escribio "david gamboy" en vez de
+      // "david.gamboy", crear el codigo o entrar fallaba con "Usuario no encontrado")
+      if (data.username) setUsername(data.username)
       setNombreCompleto(data.nombre || '')
       setTienePIN(data.tiene_pin)
       setModoRecuperar(!!data.requiere_temporal)
@@ -459,7 +466,7 @@ function LoginTractorista() {
                     type="text"
                     placeholder=""
                     value={username}
-                    onChange={e => { setUsername(e.target.value.toLowerCase()); setError('') }}
+                    onChange={e => { setUsername(e.target.value.toLowerCase().replace(/\s+/g, '.')); setError('') }}
                     onKeyDown={e => e.key === 'Enter' && document.getElementById('input-cedula')?.focus()}
                     style={styles.input}
                     onFocus={e => {
