@@ -9,7 +9,7 @@ from datetime import date, datetime, timedelta
 from typing import Any, List, Optional
 
 import requests
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
@@ -22,11 +22,22 @@ from ..clients import equipos, notificaciones, servicio
 from ..comun import TZ_ECUADOR, ahora_ecuador
 from ..config import settings
 from ..database import get_db, get_mant_db
+from .tablets import tablet_por_llave
 from ..models import Actividad, CheckList, Parametro, Registro, RegistroRevision, TractorFalla
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api")
 _kiosko = sesion_o_kiosko()
+
+
+def _kiosko_o_tablet(request: Request, db: Session = Depends(get_db)) -> Usuario:
+    """Una tablet vinculada (X-Equipo) reporta telemetria aunque no haya un
+    tractorista con sesion (el motor puede estar encendido sin nadie logueado)."""
+    from .tablets import tablet_por_llave as _tb
+    t = _tb(db, request.headers.get("X-Equipo"))
+    if t:
+        return Usuario(username=f"tablet:{t.id}", tipo="tablet", nombre=f"Tablet {t.tractor}", pestanas=[])
+    return _kiosko(request, db)
 
 
 # ------------------------------------------------------------------ equipos
@@ -76,8 +87,9 @@ _sesiones_horometro: dict[str, dict] = {}
 
 
 class TelemetriaIn(BaseModel):
-    tractor_id: str
+    tractor_id: str = ""
     operador: Optional[str] = None
+    fecha: Optional[datetime] = None     # hora real del reporte (tablet sin internet)
     horas_delta: float = 0.0
     lat: Optional[float] = None
     lon: Optional[float] = None
@@ -100,11 +112,28 @@ def _mant(method: str, ruta: str, body=None):
     return resp.json() if resp.content else None
 
 
+def _id_mantenimiento(tractor: str) -> str:
+    """'CASE JX100 - 029' -> 'CASE-JX100-029' (asi lo identifica Mantenimiento)."""
+    partes = (tractor or "").split(" - ")
+    if len(partes) == 2:
+        return f"{partes[0].strip().replace(' ', '-')}-{partes[1].strip()}"
+    return (tractor or "").strip()
+
+
 @router.post("/telemetria")
-def telemetria(data: TelemetriaIn, _: Usuario = Depends(_kiosko)):
-    """Telemetria de los kioskos: se reenvia al backend de Mantenimiento."""
+def telemetria(data: TelemetriaIn, request: Request, db: Session = Depends(get_db),
+               user: Usuario = Depends(_kiosko_o_tablet)):
+    """Telemetria de los kioskos / tablets: se reenvia al backend de
+    Mantenimiento. Una tablet (cabecera X-Equipo) reporta SIEMPRE su tractor."""
     ahora = ahora_ecuador().replace(tzinfo=TZ_ECUADOR)
-    tractor_id = data.tractor_id.strip()
+    tablet = tablet_por_llave(db, request.headers.get("X-Equipo"))
+    tractor_id = _id_mantenimiento(tablet.tractor) if tablet else data.tractor_id.strip()
+    # Motor encendido sin nadie logueado en la tablet: Mantenimiento exige texto
+    data.operador = (data.operador or "").strip() or "Sin operador"
+    if data.fecha:                       # reporte que se envia tarde (cola sin internet)
+        f = data.fecha.astimezone(TZ_ECUADOR) if data.fecha.tzinfo else data.fecha.replace(tzinfo=TZ_ECUADOR)
+        if ahora - timedelta(days=7) <= f <= ahora + timedelta(minutes=5):
+            ahora = f
     resultado = {}
     horas_reales = None
     try:

@@ -42,35 +42,54 @@ async function huella(username, pin) {
   return hex(await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: sal, iterations: 150000 }, material, 256))
 }
 
+// Una huella POR TRACTORISTA: en la tablet del tractor entran varios.
+// (La version anterior guardaba una sola en CLAVE_HUELLA; se sigue leyendo.)
+const CLAVE_HUELLAS = 'tractorista_pines_offline'
+const leerHuellas = () => {
+  let m = {}
+  try { m = JSON.parse(localStorage.getItem(CLAVE_HUELLAS) || '{}') || {} } catch { m = {} }
+  const vieja = localStorage.getItem(CLAVE_HUELLA)
+  if (vieja && vieja.includes(':')) {
+    const [u, h] = vieja.split(':')
+    if (!m[u]) m[u] = { h, nombre: localStorage.getItem(CLAVE_NOMBRE) || '' }
+  }
+  return m
+}
+
 /** Tras entrar CON internet: deja listo el ingreso sin internet. */
 export async function guardarIngresoOffline(username, pin, nombre) {
   try {
-    localStorage.setItem(CLAVE_HUELLA, `${username.toLowerCase()}:${await huella(username, pin)}`)
+    const m = leerHuellas()
+    m[username.toLowerCase()] = { h: await huella(username, pin), nombre: nombre || '' }
+    localStorage.setItem(CLAVE_HUELLAS, JSON.stringify(m))
+    localStorage.removeItem(CLAVE_HUELLA)
     localStorage.setItem(CLAVE_NOMBRE, nombre || '')
-    localStorage.removeItem(CLAVE_FALLOS)
+    localStorage.removeItem(CLAVE_FALLOS + ':' + username.toLowerCase())
   } catch { /* sin crypto.subtle (http): no hay ingreso sin internet */ }
 }
 
-export const hayIngresoOffline = username =>
-  (localStorage.getItem(CLAVE_HUELLA) || '').startsWith(`${(username || '').toLowerCase()}:`)
+export const hayIngresoOffline = username => !!leerHuellas()[(username || '').toLowerCase()]
 
-export const nombreGuardado = () => localStorage.getItem(CLAVE_NOMBRE) || ''
+export const nombreGuardado = username =>
+  (username && leerHuellas()[username.toLowerCase()]?.nombre) || localStorage.getItem(CLAVE_NOMBRE) || ''
 
 /** Ingreso SIN internet. Devuelve true o lanza Error con el motivo. */
 export async function ingresarOffline(username, pin) {
-  const guardada = localStorage.getItem(CLAVE_HUELLA) || ''
-  if (!hayIngresoOffline(username)) throw new Error('Sin conexión. La primera vez debe ingresar con internet.')
-  const fallos = JSON.parse(localStorage.getItem(CLAVE_FALLOS) || '{"n":0,"hasta":0}')
+  const u = (username || '').toLowerCase()
+  const guardada = leerHuellas()[u]
+  if (!guardada) throw new Error('Sin conexión. La primera vez debe ingresar con internet.')
+  const claveFallos = CLAVE_FALLOS + ':' + u
+  const fallos = JSON.parse(localStorage.getItem(claveFallos) || '{"n":0,"hasta":0}')
   if (fallos.hasta > Date.now()) {
     throw new Error(`Demasiados intentos. Intente de nuevo en ${Math.ceil((fallos.hasta - Date.now()) / 60000)} min.`)
   }
-  if (guardada.split(':')[1] !== await huella(username, pin)) {
+  if (guardada.h !== await huella(username, pin)) {
     const n = fallos.n + 1
-    localStorage.setItem(CLAVE_FALLOS, JSON.stringify(n >= MAX_FALLOS ? { n: 0, hasta: Date.now() + BLOQUEO_MS } : { n, hasta: 0 }))
+    localStorage.setItem(claveFallos, JSON.stringify(n >= MAX_FALLOS ? { n: 0, hasta: Date.now() + BLOQUEO_MS } : { n, hasta: 0 }))
     throw new Error('Código incorrecto')
   }
-  localStorage.removeItem(CLAVE_FALLOS)
-  localStorage.setItem('usuario_nombre', nombreGuardado())
+  localStorage.removeItem(claveFallos)
+  localStorage.setItem('usuario_nombre', guardada.nombre || '')
   localStorage.setItem('usuario_username', username)
   localStorage.setItem('usuario_tipo', 'tractorista')
   return true
@@ -83,7 +102,7 @@ export async function ingresarOffline(username, pin) {
  */
 export async function borrarTelefonoDadoDeBaja() {
   Object.keys(localStorage).filter(k => k.startsWith('tractorista_') || k.startsWith('usuario_') || k === CLAVE_LLAVE
-    || k === 'user_permisos_operagricola').forEach(k => localStorage.removeItem(k))
+    || k === 'user_permisos_operagricola' || k === 'oa_tablet').forEach(k => localStorage.removeItem(k))
   try {
     if (indexedDB.databases) {
       for (const d of await indexedDB.databases()) if (d.name) indexedDB.deleteDatabase(d.name)

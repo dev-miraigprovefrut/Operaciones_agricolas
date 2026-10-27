@@ -4,6 +4,7 @@ import './index.css'
 import App from './App.jsx'
 import { API_URL, cargarSesion, cerrarSesion, limpiarDatosSesion, renovarSesion, esTractorista, esTelefonoCampo, cerrarPestana, HUB_LOGIN_URL, HUB_URL, haySesionGuardada } from './services/sesion.js'
 import { huboActividad, alVolverActividad } from './services/actividad.js'
+import { esApp, tabletVinculada, iniciarModoTablet } from './services/tablet.js'
 
 // Enlaces viejos del HUB traen #token=... en la URL: ya no se usa (la sesion
 // va en la cookie del HUB), solo se limpia.
@@ -15,7 +16,8 @@ if (window.location.pathname.startsWith('/sso-login')) {
 }
 
 const esDominioTractoristas = window.location.hostname.startsWith('tractoristas')
-const esRutaPublica = window.location.pathname.startsWith('/login-tractorista')
+const esRutaPublica = window.location.pathname.startsWith('/login-tractorista') || window.location.pathname.startsWith('/vincular-tablet')
+  || window.location.pathname.startsWith('/kiosko')
 
 function pantalla({ icono, color, titulo, texto, botones = [] }) {
   document.title = titulo
@@ -37,6 +39,8 @@ function pantalla({ icono, color, titulo, texto, botones = [] }) {
 // si el navegador no lo permite, al login del HUB. Los tractoristas vuelven a
 // su login de cedula + PIN.
 function sesionExpirada() {
+  // Tablet del tractor: la pantalla tipo kiosko maneja su propio ingreso
+  if (esApp()) { if (!window.location.pathname.startsWith('/kiosko')) window.location.href = '/kiosko'; return }
   if (esTractorista() || esDominioTractoristas) { window.location.href = '/login-tractorista'; return }
   pantalla({ icono: 'bx-lock-alt', color: '#ff8a80', titulo: 'Sesión expirada',
     texto: 'Su sesión ha finalizado. Cerrando...', botones: [] })
@@ -91,6 +95,14 @@ async function cerrarPorInactividad() {
 }
 
 async function iniciar() {
+  // APK de la tablet del tractor: primero vincularla; despues telemetria siempre
+  if (esApp() && !tabletVinculada() && !window.location.pathname.startsWith('/vincular-tablet')) {
+    window.location.href = '/vincular-tablet'; return
+  }
+  // Tablet vinculada: siempre la interfaz del kiosko (como la Raspberry)
+  if (esApp() && tabletVinculada() && !esRutaPublica) { window.location.href = '/kiosko'; return }
+  if (esApp() && tabletVinculada() && window.location.pathname.startsWith('/login-tractorista')) { window.location.href = '/kiosko'; return }
+  iniciarModoTablet()
   if (esRutaPublica) { renderizar(); return }
   const estado = await cargarSesion()
   if (estado === 'ok') { renderizar(); return }

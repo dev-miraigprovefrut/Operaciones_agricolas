@@ -9,6 +9,8 @@ import RegistrarActTractores from './pages/RegistrarActTractores'
 import FichaCosecha from './pages/FichaCosecha'
 import ReporteActividades from './pages/ReporteActividades'
 import FichasAplicacion from './pages/FichasAplicacion'
+import VincularTablet from './pages/VincularTablet'
+import KioskoTablet from './pages/KioskoTablet'
 import ReportesCosecha from './pages/ReportesCosecha'
 import ReporteSeguridad from './pages/ReporteSeguridad'
 import CatalogoCamiones from './pages/CatalogoCamiones'
@@ -230,7 +232,8 @@ function App() {
 
   // En el dominio de tractoristas solo entran tractoristas (sesion propia):
   // si no hay una, al login de cedula + PIN.
-  if (esDominioTractoristas && !esTractorista && !window.location.pathname.startsWith('/login-tractorista')) {
+  if (esDominioTractoristas && !esTractorista && !window.location.pathname.startsWith('/login-tractorista')
+    && !window.location.pathname.startsWith('/vincular-tablet') && !window.location.pathname.startsWith('/kiosko')) {
     window.location.href = '/login-tractorista'
     return null
   }
@@ -268,6 +271,8 @@ function App() {
       <Routes>
         {/* Login tractorista - página independiente sin header/nav */}
         <Route path="/login-tractorista" element={<LoginTractorista />} />
+        <Route path="/vincular-tablet" element={<VincularTablet />} />
+        <Route path="/kiosko" element={<KioskoTablet />} />
 
         {/* Tractorista: solo acceso a registrar actividades */}
         {esTractorista ? (
@@ -352,7 +357,7 @@ function App() {
           } />
         )}
       </Routes>
-      <BotonModoColor modo={modo} darkMode={darkMode} onCambiar={siguienteModo} />
+      {!window.location.pathname.startsWith('/kiosko') && <BotonModoColor modo={modo} darkMode={darkMode} onCambiar={siguienteModo} />}
     </BrowserRouter>
   )
 }

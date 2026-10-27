@@ -70,7 +70,7 @@ function LoginTractorista() {
           // ingresa con el codigo contra la huella guardada
           if (hayIngresoOffline(savedUsername)) {
             setSinRed(true)
-            setNombreCompleto(nombreGuardado())
+            setNombreCompleto(nombreGuardado(savedUsername))
             setTienePIN(true)
             setPaso(2)
           } else {
@@ -122,7 +122,7 @@ function LoginTractorista() {
     } catch (err) {
       if (esSinRed(err) && hayIngresoOffline(username.trim())) {
         setSinRed(true)
-        setNombreCompleto(nombreGuardado())
+        setNombreCompleto(nombreGuardado(username.trim()))
         setTienePIN(true)
         setPaso(2)
         return

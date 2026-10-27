@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from ..auth import (PESTANAS, Usuario, cerrar_sesion_tractorista, emitir_sesion_tractorista,
                     formatear_nombre_tractorista, get_current_user)
 from ..models import TractoristaDispositivo
+from .tablets import marcar_uso, tablet_por_llave
 from ..clients import personas
 from ..comun import ahora_ecuador
 from ..config import settings
@@ -39,7 +40,7 @@ def yo(response: Response, db: Session = Depends(get_db), user: Usuario = Depend
         # Telefono de campo (HUB): sesion de jornada, la app no se cierra por inactividad
         "campo": bool(user.claims.get("campo")),
         # Tractorista con sesion de ANTES del telefono registrado: la app lo registra
-        "dispositivo": bool(user.claims.get("disp")) if user.es_tractorista else None,
+        "dispositivo": bool(user.claims.get("disp") or user.claims.get("tablet")) if user.es_tractorista else None,
         "pestanas": list(PESTANAS) if user.es_admin else user.pestanas,
     }
 
@@ -200,6 +201,16 @@ def login(data: TractoristaLogin, response: Response, db: Session = Depends(get_
     # hasta que den de baja el anterior en Catalogos > Tractoristas.
     if not data.dispositivo or len(data.dispositivo) < 32:
         raise HTTPException(400, "Actualice la aplicación: recargue la página con internet.")
+    tablet = tablet_por_llave(db, data.dispositivo)
+    if tablet:
+        # Tablet del tractor (compartida por varios tractoristas): su sesion va
+        # atada a la tablet; se corta si la tablet se da de baja.
+        marcar_uso(db, tablet.id)
+        t.intentos_fallidos, t.bloqueado_hasta, t.ultimo_acceso = 0, None, ahora
+        db.commit()
+        nombre = _nombre(t)
+        token = emitir_sesion_tractorista(response, t, nombre, id_tablet=tablet.id)
+        return {"token": token, "nombre": nombre, "username": t.username, "tablet": tablet.tractor}
     llave = hashlib.sha256(data.dispositivo.encode()).hexdigest()
     d = db.scalar(select(TractoristaDispositivo).where(TractoristaDispositivo.id_tractorista == t.id,
                                                        TractoristaDispositivo.activo.is_(True)))

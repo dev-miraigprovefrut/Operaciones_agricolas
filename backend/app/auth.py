@@ -138,7 +138,8 @@ def formatear_nombre_tractorista(nombre_legal: str) -> str:
     return (nombre_legal or "").strip().title()
 
 
-def emitir_sesion_tractorista(response: Response, t: Tractorista, nombre: str, id_dispositivo: int | None = None) -> str:
+def emitir_sesion_tractorista(response: Response, t: Tractorista, nombre: str, id_dispositivo: int | None = None,
+                              id_tablet: int | None = None) -> str:
     """Pone la cookie de sesion y devuelve el token (el kiosko de la Raspberry
     no tiene navegador con cookies: lo reenvia como Bearer). Con telefono
     registrado (id_dispositivo) la sesion es larga y queda atada a ese telefono."""
@@ -148,6 +149,8 @@ def emitir_sesion_tractorista(response: Response, t: Tractorista, nombre: str, i
     claims = {"sub": t.username, "id_tractorista": t.id, "nombre": nombre, "tipo": TIPO_TRACTORISTA, "exp": exp}
     if id_dispositivo:
         claims["disp"] = id_dispositivo
+    if id_tablet:                       # tablet del tractor (compartida): sesion de jornada
+        claims["tablet"] = id_tablet
     token = jwt.encode(claims, _clave_tractorista(), algorithm="HS256")
     response.set_cookie(settings.COOKIE_TRACTORISTA_NAME, token, max_age=segundos,
                         httponly=True, secure=settings.COOKIE_SECURE, samesite="lax", path="/",
@@ -178,6 +181,10 @@ def _usuario_tractorista(token: str, db: Session) -> Usuario:
         d = db.get(TractoristaDispositivo, p["disp"])
         if not d or not d.activo or d.id_tractorista != t.id:
             raise HTTPException(401, TELEFONO_DE_BAJA)
+    if p.get("tablet"):
+        from .routers.tablets import tablet_activa
+        if not tablet_activa(db, p["tablet"]):
+            raise HTTPException(401, TELEFONO_DE_BAJA)
     return Usuario(username=t.username or t.cedula, tipo=TIPO_TRACTORISTA, nombre=p.get("nombre") or t.username,
                    rol="Tractorista", exp=p.get("exp"), pestanas=list(PESTANAS_TRACTORISTA),
                    id_tractorista=t.id, id_persona=t.id_persona, claims=p)
@@ -193,6 +200,12 @@ def _es_token_tractorista(token: str) -> bool:
 
 
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> Usuario:
+    # Tablet del tractor (APK): varios tractoristas en el mismo equipo; cada
+    # accion (tambien las que se envian tarde desde la cola sin internet) va con
+    # el Bearer de QUIEN la hizo, que manda sobre la cookie (la del ultimo que entro).
+    token = _token_hub(request)
+    if token and _es_token_tractorista(token):
+        return _usuario_tractorista(token, db)
     # La sesion de tractorista es explicita de este modulo: si existe, manda.
     tok_t = request.cookies.get(settings.COOKIE_TRACTORISTA_NAME)
     if tok_t:

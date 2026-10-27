@@ -1,0 +1,135 @@
+/* Tablet del tractor (APK): misma interfaz que el kiosko de la Raspberry
+   (kiosk_app.py): fondo claro, morado Nintanga, teclados grandes para el dedo.
+   Paleta fija (clara) igual a la Raspberry, sin modo oscuro: la cabina es de dia. */
+.kiosko {
+  --morado: #7b1fa2;
+  --morado-oscuro: #5d1680;
+  --rosa: #ea64a5;
+  --fondo: #f5f5f7;
+  --blanco: #ffffff;
+  --texto: #333333;
+  --gris: #666666;
+  --borde: #dddddd;
+  --tecla: #f5f2f8;
+  --tecla-activa: #e8d9f2;
+  --rojo: #c0392b;
+  --verde: #28a745;
+  --naranja: #e65100;
+  position: fixed; inset: 0;
+  background: var(--fondo); color: var(--texto);
+  font-family: 'Segoe UI', Roboto, system-ui, sans-serif;
+  display: flex; flex-direction: column; overflow: hidden;
+  user-select: none; -webkit-user-select: none;
+}
+.kiosko button { font-family: inherit; cursor: pointer; border: 0; touch-action: manipulation; }
+.kiosko button:disabled { opacity: .5; cursor: default; }
+.kiosko input { font-family: inherit; user-select: text; -webkit-user-select: text; }
+
+/* ---------- acceso (cedula y codigo) ---------- */
+.k-centro { flex: 1; display: flex; align-items: center; justify-content: center; gap: 2.5rem; padding: 1rem; }
+.k-logo-pie { position: absolute; left: 15px; bottom: 10px; height: 70px; pointer-events: none; }
+.k-tarjeta { background: var(--blanco); box-shadow: 6px 6px 0 #e2ddea; min-width: 340px; }
+.k-tarjeta-cab { background: var(--morado); color: #fff; text-align: center; padding: 20px 40px; }
+.k-tarjeta-cab h1 { margin: 0; font-size: 1.6rem; color: #fff; }
+.k-campo-texto { font-size: 1.2rem; letter-spacing: .02em; outline-color: var(--morado); }
+.k-quien { width: min(620px, 100%); }
+.k-quien-lista { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 10px; max-height: 50vh; overflow-y: auto; }
+.k-quien-nombre { display: flex; align-items: center; gap: 12px; padding: 14px; background: var(--tecla); color: var(--texto);
+  font-size: 1.15rem; text-align: left; }
+.k-quien-nombre:active { background: var(--tecla-activa); }
+.k-quien-nombre .inicial { width: 40px; height: 40px; flex: none; background: var(--morado); color: #fff; font-weight: 700;
+  display: flex; align-items: center; justify-content: center; font-size: 1.2rem; }
+.k-tarjeta-cab p { margin: 2px 0 0; color: #e8c8ef; font-size: .95rem; }
+.k-acento { height: 6px; background: var(--morado); }
+.k-tarjeta-cuerpo { padding: 22px 36px; display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.k-etiqueta { align-self: flex-start; font-size: .75rem; font-weight: 700; color: var(--gris); letter-spacing: .06em; }
+.k-campo-num { width: 100%; box-sizing: border-box; text-align: center; font-size: 1.5rem; padding: 8px; border: 1px solid var(--borde);
+  letter-spacing: .12em; min-height: 2.4rem; font-variant-numeric: tabular-nums; }
+.k-hola { align-self: flex-start; font-size: 1.35rem; font-weight: 700; }
+.k-subtitulo { font-size: 1rem; font-weight: 700; color: var(--gris); }
+.k-puntos { display: flex; gap: 16px; }
+.k-punto { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; font-size: 2rem; color: var(--morado);
+  border-bottom: 3px solid var(--borde); }
+.k-punto.lleno { background: #f5eeff; border-bottom-color: var(--morado); }
+.k-teclado { display: grid; grid-template-columns: repeat(4, 74px); grid-auto-rows: 62px; gap: 12px; }
+.k-tecla { background: var(--tecla); color: var(--texto); font-size: 1.6rem; }
+.k-tecla:active { background: var(--tecla-activa); color: var(--morado); }
+.k-tecla.ok { background: var(--morado); color: #fff; font-weight: 700; }
+.k-tecla.ok:active { background: var(--morado-oscuro); }
+.k-tecla.borrar { color: var(--rojo); }
+.k-msg { min-height: 1.3em; font-size: .95rem; color: var(--rojo); text-align: center; max-width: 340px; }
+.k-msg.ok { color: var(--verde); }
+.k-aviso { background: #fff3cd; color: #8a5a00; font-size: .85rem; padding: 6px 10px; text-align: center; max-width: 340px; }
+.k-lateral { background: var(--blanco); color: var(--rosa); border: 1px solid var(--rosa); font-size: 1.15rem; font-weight: 700;
+  width: 220px; padding: 14px 0; }
+
+/* ---------- trabajo ---------- */
+.k-cabecera { background: var(--morado); color: #fff; display: flex; align-items: center; gap: 1rem; padding: 10px 16px;
+  padding-top: calc(10px + env(safe-area-inset-top, 0px)); }
+.k-cabecera .tractor { font-size: 1.3rem; font-weight: 700; }
+.k-cabecera .operador { font-size: .9rem; color: #e8c8ef; }
+.k-cabecera .espacio { flex: 1; }
+.k-estado-red { font-size: .85rem; padding: 4px 10px; background: rgba(255,255,255,.15); display: flex; align-items: center; gap: 6px; }
+.k-estado-red.sin { background: var(--rojo); }
+.k-btn-cab { background: rgba(255,255,255,.15); color: #fff; font-size: .9rem; padding: 8px 14px; }
+
+.k-cuerpo { flex: 1; min-height: 0; display: flex; gap: 16px; padding: 14px 16px 16px; }
+
+.k-checklist { flex: 1; display: flex; flex-direction: column; gap: 10px; min-height: 0; }
+.k-fila-titulo { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.k-fila-titulo h2 { margin: 0; padding: 0; border: 0; color: var(--morado); font-size: 1.5rem; flex: 1; }
+.k-btn { background: var(--morado); color: #fff; font-size: 1.1rem; font-weight: 700; padding: 12px 24px; }
+.k-btn.suave { background: var(--tecla); color: var(--morado); }
+.k-btn.rojo { background: var(--rojo); }
+.k-btn.gris { background: #555; }
+.k-ayuda-check { display: flex; justify-content: space-between; gap: 10px; color: var(--morado); font-weight: 700; flex-wrap: wrap; }
+.k-ayuda-check .progreso { color: var(--rojo); font-weight: 400; }
+.k-ayuda-check .progreso.todo { color: var(--verde); }
+.k-check-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 6px; overflow-y: auto; }
+.k-check-item { display: flex; align-items: center; gap: 12px; padding: 10px 12px; background: var(--blanco); font-size: 1.15rem; text-align: left; color: var(--texto); }
+.k-check-item:nth-child(4n+3), .k-check-item:nth-child(4n+4) { background: #fafafa; }
+.k-caja { width: 26px; height: 26px; flex: none; border: 2px solid var(--morado); display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 1.1rem; }
+.k-check-item.si .k-caja { background: var(--morado); }
+
+.k-izq { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.k-izq h3, .k-form h3 { margin: 0; color: var(--morado); font-size: 1.15rem; }
+.k-tabla-cont { flex: 1; min-height: 0; overflow-y: auto; background: var(--blanco); }
+.k-tabla { width: 100%; border-collapse: collapse; font-size: 1.05rem; font-variant-numeric: tabular-nums; }
+.k-tabla th { position: sticky; top: 0; background: var(--morado); color: #fff; text-align: left; padding: 8px 10px; font-size: .95rem; }
+.k-tabla td { padding: 10px; border-bottom: 1px solid #eee; }
+.k-tabla td.centro, .k-tabla th.centro { text-align: center; }
+.k-tabla tr.Pendiente { background: var(--blanco); }
+.k-tabla tr.Ejecutándose { background: #c8f0d0; }
+.k-tabla tr.Pausado { background: #fff3cd; }
+.k-tabla tr.sel td { box-shadow: inset 0 3px 0 var(--morado), inset 0 -3px 0 var(--morado); font-weight: 600; }
+.k-tabla .vacio { text-align: center; color: var(--gris); padding: 2rem; }
+.k-pie-izq { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: .85rem; color: var(--gris); }
+.k-pie-izq .espacio { flex: 1; }
+.k-btn-chico { font-size: .95rem; font-weight: 700; padding: 10px 14px; background: var(--tecla); color: var(--morado); }
+.k-btn-chico.jornada { background: var(--morado-oscuro); color: #fff; }
+.k-btn-chico.eliminar { background: var(--blanco); color: var(--rojo); }
+
+.k-form { width: 360px; flex: none; background: var(--blanco); border: 2px solid var(--morado); padding: 14px; display: flex; flex-direction: column;
+  gap: 6px; overflow-y: auto; }
+.k-form-titulo { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.k-estado { font-size: .85rem; font-weight: 700; }
+.k-form label { font-size: .75rem; font-weight: 700; color: var(--gris); letter-spacing: .04em; margin-top: 4px; }
+.k-campo { position: relative; display: flex; gap: 4px; }
+.k-campo input { flex: 1; min-width: 0; font-size: 1.05rem; padding: 10px; border: 1px solid var(--borde); }
+.k-campo input:disabled { background: #f3f3f3; color: var(--texto); }
+.k-campo .limpiar { width: 42px; background: var(--blanco); color: var(--rojo); font-size: 1.2rem; font-weight: 700; }
+.k-sugerencias { position: absolute; z-index: 5; left: 0; right: 0; top: 100%; background: var(--blanco); border: 1px solid var(--morado);
+  max-height: 290px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 4px; box-shadow: 0 6px 16px rgba(0,0,0,.12); }
+.k-sugerencias button { background: var(--tecla); color: var(--texto); text-align: left; font-size: 1.05rem; padding: 12px 10px; }
+.k-sugerencias button:active { background: var(--morado); color: #fff; }
+.k-form-msg { min-height: 1.2em; font-size: .9rem; font-weight: 700; color: var(--rojo); }
+.k-botonera { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+.k-botonera .k-btn { width: 100%; }
+
+@media (max-width: 800px) {
+  .k-cuerpo { flex-direction: column; overflow-y: auto; }
+  .k-form { width: auto; }
+  .k-check-grid { grid-template-columns: 1fr; }
+  .k-centro { flex-wrap: wrap; gap: 1rem; overflow-y: auto; }
+}

@@ -5,6 +5,7 @@ import { fetchWithOffline, fetchConTimeout, addToQueue, processQueue, getPending
 import useOnlineStatus from '../services/useOnlineStatus'
 import FichaAplicacion from '../components/FichaAplicacion'
 import { nuevoClienteId, ahoraLocal, guardarLocal, mezclar, urlRegistro, accionDe, claveRegistro } from '../services/registrosLocales'
+import { tractorFijo, ubicacionTablet } from '../services/tablet'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8007'
 
@@ -92,7 +93,9 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
   }
 
   // Obtener ubicación GPS del dispositivo
-  const obtenerUbicacion = () => {
+  const obtenerUbicacion = async () => {
+    const deTablet = await ubicacionTablet()        // APK: GPS de la tablet del tractor
+    if (deTablet) return deTablet
     return new Promise((resolve) => {
       if (!navigator.geolocation) return resolve(null)
       navigator.geolocation.getCurrentPosition(
@@ -103,8 +106,10 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
     })
   }
 
+  // Tablet fija en el tractor (APK): el tractor viene dado y no se cambia
+  const fijo = tractorFijo()
   const [formData, setFormData] = useState({
-    tractor: '',
+    tractor: fijo,
     apero: '',
     horometro: '',
     lote: '',
@@ -1252,13 +1257,16 @@ function RegistrarActTractores({ equipo = 'Tractores' }) {
                       type="text"
                       className="form-control"
                       value={formData.tractor}
-                      onChange={(e) => { setFormData(prev => ({...prev, tractor: e.target.value})); setShowTractorList(true) }}
-                      onFocus={() => setShowTractorList(true)}
+                      onChange={(e) => { if (fijo) return; setFormData(prev => ({...prev, tractor: e.target.value})); setShowTractorList(true) }}
+                      onFocus={() => { if (!fijo) setShowTractorList(true) }}
+                      readOnly={!!fijo}
                       placeholder={esDron ? 'Escriba o elija el dron...' : 'Escribir para buscar tractor...'}
                       autoComplete="off"
                       style={{paddingRight: formData.tractor ? '2.5rem' : '2rem'}}
                     />
-                    {formData.tractor ? (
+                    {fijo ? (
+                      <i className='bx bx-lock-alt' title='Tractor de esta tablet' style={{position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-secondary)'}}></i>
+                    ) : formData.tractor ? (
                       <i className='bx bx-x' onClick={() => { setFormData(prev => ({...prev, tractor: '', horometro: ''})); setShowTractorList(false) }} style={{position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: '#dc3545', cursor: 'pointer', fontSize: '1.2rem'}}></i>
                     ) : (
                       <i className='bx bx-chevron-down' style={{position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', color: 'var(--color-text-secondary)', pointerEvents: 'none'}}></i>

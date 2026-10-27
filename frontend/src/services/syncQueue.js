@@ -3,6 +3,8 @@
  * Guarda requests pendientes en IndexedDB y los envía cuando hay conexión
  */
 
+import { sesionTablet } from './tablet.js'
+
 const DB_NAME = 'opagricola_offline'
 const DB_VERSION = 1
 const STORE_QUEUE = 'sync_queue'
@@ -65,7 +67,9 @@ export async function addToQueue(url, method, body, tipo, descripcion) {
       status: 'pending',
       createdAt: new Date().toISOString(),
       retries: 0,
-      usuario: localStorage.getItem('usuario_nombre') || 'desconocido'
+      usuario: localStorage.getItem('usuario_nombre') || 'desconocido',
+      // tablet del tractor: se envia con la sesion de quien lo hizo
+      username: localStorage.getItem('usuario_username') || null
     }
     const req = store.add(item)
     req.onsuccess = () => resolve(req.result)
@@ -258,6 +262,8 @@ async function procesarCola() {
         method: item.method,
         headers: { 'Content-Type': 'application/json' }
       }
+      const sesion = sesionTablet(item.username)
+      if (sesion) options.headers.Authorization = `Bearer ${sesion}`
       if (item.body && item.method !== 'GET') {
         options.body = JSON.stringify(item.body)
       }

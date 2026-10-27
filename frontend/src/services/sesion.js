@@ -13,6 +13,7 @@
 import { verComoActivo } from './verComo'
 import { huboActividad } from './actividad'
 import { borrarTelefonoDadoDeBaja, esTelefonoDeBaja, llaveDispositivo, nombreDispositivo } from './dispositivo.js'
+import { cabeceraEquipo, esApp, sesionTablet } from './tablet.js'
 
 export const API_URL = (import.meta.env.VITE_API_URL || 'http://localhost:8007').replace(/\/$/, '')
 export const HUB_API_URL = (import.meta.env.VITE_HUB_API_URL || 'https://hubbk.miraigprovefrut.com/api').replace(/\/$/, '')
@@ -43,7 +44,12 @@ window.fetch = async (input, init = {}) => {
   const url = typeof input === 'string' ? input : input?.url
   if (!esApi(url)) return fetchOriginal(input, init)
   const headers = new Headers(init.headers || (input instanceof Request ? input.headers : undefined))
-  headers.delete('Authorization')            // la sesion va en la cookie
+  // La sesion va en la cookie. En la tablet del tractor, la de quien hizo la
+  // accion (la cola la manda explicita; si no, la del tractorista actual).
+  const sesionPropia = sesionTablet(localStorage.getItem('usuario_username'))
+  if (!esApp()) headers.delete('Authorization')
+  else if (!headers.has('Authorization') && sesionPropia) headers.set('Authorization', `Bearer ${sesionPropia}`)
+  for (const [k, v] of Object.entries(cabeceraEquipo())) headers.set(k, v)   // tablet del tractor (APK)
   const simulado = verComoActivo()
   if (simulado) headers.set('X-Ver-Como', simulado)
   const opciones = { ...init, headers, credentials: 'include' }

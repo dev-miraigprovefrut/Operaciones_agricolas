@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import Swal from 'sweetalert2'
+import TabletsTractor from '../components/TabletsTractor'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8007'
 
@@ -260,6 +261,7 @@ function CatalogoTractoristas() {
           </button>
         </div>
       </div>
+      <TabletsTractor />
     </>
   )
 }
