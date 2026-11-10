@@ -151,8 +151,12 @@ function resumirJornada(j, cfg) {
   // horas en que ocurrio. Si NO lo registro, se descuenta el almuerzo fijo
   // (horas de su turno -> 50% -> 100%) y la jornada queda con alerta.
   const almuerzoRegistrado = recesos.length > 0
+  // "Sin almuerzo" marcado por quien revisa (no todos los tractoristas almuerzan):
+  // no se descuenta el almuerzo fijo y la jornada no queda con alerta.
+  const dia = j.inicio ? diaISO(j.inicio) : 'Sin fecha'
+  const sinAlmuerzo = !almuerzoRegistrado && !!cfg.diasSinAlmuerzo?.has(dia)
   const { enDia: _d, enNoche: _n, ...horas } = clasificarTramos(almuerzoRegistrado ? restarTramos(todos, recesos) : todos, cfg, turno)
-  if (!almuerzoRegistrado) {
+  if (!almuerzoRegistrado && !sinAlmuerzo) {
     let resto = Math.min(Number(cfg.almuerzo_min) || 0, sumaHoras(horas))
     for (const k of CLASES) { const d = Math.min(resto, horas[k]); horas[k] -= d; resto -= d }
   }
@@ -160,10 +164,11 @@ function resumirJornada(j, cfg) {
   const regs = j.items.map(it => it.r)
   return {
     inicio: j.inicio, fin: j.fin, inicioContado, finContado, turno,
-    dia: j.inicio ? diaISO(j.inicio) : 'Sin fecha',
+    dia,
     regs, trabajado, ...horas, pagable,
     almuerzo: trabajado - pagable,
-    almuerzoRegistrado,
+    almuerzoRegistrado: almuerzoRegistrado || sinAlmuerzo,   // sin alerta
+    sinAlmuerzoMarcado: sinAlmuerzo,
     paro: regs.reduce((s, r) => s + (r.tiempo_paro || 0), 0),
     enCurso: regs.some(r => r.estado === 'Ejecutándose'),
   }
@@ -193,6 +198,40 @@ export function armarJornadas(regs, cfg) {
     if (it.fin && (!actual.fin || it.fin > actual.fin)) actual.fin = it.fin
   }
   return jornadas.map(j => resumirJornada(j, cfg))
+}
+
+/**
+ * Fechas de inicio/fin con las HORAS corregidas en el reporte, eligiendo el DIA
+ * solo: el fin es el mismo dia del inicio, o el siguiente si la hora es menor
+ * (turno que cruza la medianoche). Asi, si el tractorista olvido cerrar la
+ * actividad (17:20 -> 05:36 del dia siguiente) y se corrige el fin a 18:00,
+ * queda el MISMO dia y no arrastra la jornada del dia siguiente.
+ * El inicio corregido (sin tocar el fin) toma el dia del fin, o el anterior.
+ */
+export function fechasEditadas(r, ed = {}) {
+  const ini = eventoInicio(r)?.fecha
+  const fi = eventoFin(r)?.fecha
+  const conHora = (iso, hhmm) => `${iso.substring(0, 10)}T${hhmm}:00`
+  const corto = (iso) => (iso || '').substring(0, 16)
+  const moverDia = (iso, n) => {
+    const d = new Date(`${iso.substring(0, 10)}T12:00:00`)
+    d.setDate(d.getDate() + n)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}${iso.substring(10)}`
+  }
+  let inicio = ini
+  if (ini && ed.inicio) {
+    inicio = conHora(ini, ed.inicio)
+    if (fi && !ed.fin) {
+      inicio = conHora(fi, ed.inicio)
+      if (corto(inicio) > corto(fi)) inicio = moverDia(inicio, -1)
+    }
+  }
+  let fin = fi
+  if (fi && ed.fin) {
+    fin = conHora(inicio || fi, ed.fin)
+    if (inicio && corto(fin) <= corto(inicio)) fin = moverDia(fin, 1)
+  }
+  return { inicio, fin }
 }
 
 export function totalizarJornadas(jornadas) {

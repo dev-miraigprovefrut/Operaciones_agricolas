@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
 import Swal from 'sweetalert2'
 import ExcelJS from 'exceljs'
 import TablaJornada from '../components/TablaJornada'
-import { CONFIG_JORNADA_DEFECTO, armarJornadas, totalizarJornadas, diaISO, tipoDia, feriadoDe } from '../utils/jornadas'
+import { CONFIG_JORNADA_DEFECTO, armarJornadas, totalizarJornadas, diaISO, tipoDia, feriadoDe, fechasEditadas } from '../utils/jornadas'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8007'
 
@@ -47,6 +47,22 @@ function ReporteActividades() {
   })()
   // Horario normal, almuerzo, separacion entre jornadas y feriados (ver utils/jornadas.js)
   const [cfgJornada, setCfgJornada] = useState(CONFIG_JORNADA_DEFECTO)
+  // Jornadas marcadas "sin almuerzo" ("operador|AAAA-MM-DD"): no se descuenta el almuerzo fijo
+  const [sinAlmuerzo, setSinAlmuerzo] = useState(new Set())
+  const marcarSinAlmuerzo = async (operador, dia, valor) => {
+    const clave = `${operador}|${dia}`
+    setSinAlmuerzo(prev => { const n = new Set(prev); valor ? n.add(clave) : n.delete(clave); return n })
+    try {
+      const res = await fetch(`${API_URL}/api/parametros/sin-almuerzo`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ operador, dia, sin_almuerzo: valor })
+      })
+      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'No se pudo guardar')
+      setSinAlmuerzo(new Set(await res.json()))
+    } catch (e) {
+      setSinAlmuerzo(prev => { const n = new Set(prev); valor ? n.delete(clave) : n.add(clave); return n })
+      Swal.fire({ icon: 'error', title: 'Sin almuerzo', text: e.message })
+    }
+  }
   const [showFeriados, setShowFeriados] = useState(false)
   const [feriadosEdit, setFeriadosEdit] = useState([])
   const [nuevoFeriado, setNuevoFeriado] = useState({ fecha: '', nombre: '' })
@@ -64,6 +80,10 @@ function ReporteActividades() {
     fetch(`${API_URL}/api/parametros/jornada`)
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setCfgJornada(d) })
+      .catch(() => {})
+    fetch(`${API_URL}/api/parametros/sin-almuerzo`)
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setSinAlmuerzo(new Set(Array.isArray(d) ? d : [])))
       .catch(() => {})
     fetch(`${API_URL}/api/actividades`)
       .then(r => r.ok ? r.json() : [])
@@ -104,8 +124,6 @@ function ReporteActividades() {
   // Las fechas del historial vienen en hora local sin zona ('2026-10-01T14:27:05.123'):
   // se edita SOLO la hora (HH:MM); la fecha se conserva.
   const fmtFechaHora = (iso) => iso ? new Date(iso).toLocaleString('es-EC', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '-'
-  const horaDe = (iso) => (iso || '').substring(11, 16)
-  const conHora = (iso, hhmm) => `${(iso || '').substring(0, 10)}T${hhmm}:00`
   const eventoInicio = (r) => r.fecha_historial?.find(h => h.accion === 'inicio')
   const eventoFin = (r) => [...(r.fecha_historial || [])].reverse().find(h => h.accion === 'finalizado')
   const esRevisable = (r) => puedeRevisar && r.estado === 'Finalizado' && r.revision_estado !== 'REVISADO'
@@ -160,11 +178,11 @@ function ReporteActividades() {
     const items = ids.map(id => {
       const r = porId[id]; const ed = ediciones[id] || {}
       const ini = eventoInicio(r); const fi = eventoFin(r)
-      return {
-        id,
-        inicio: ed.inicio && ini && ed.inicio !== horaDe(ini.fecha) ? conHora(ini.fecha, ed.inicio) : null,
-        fin: ed.fin && fi && ed.fin !== horaDe(fi.fecha) ? conHora(fi.fecha, ed.fin) : null,
-      }
+      // el dia se elige solo (ver fechasEditadas): corregir el fin de una actividad
+      // que no se cerro la deja en su dia y no arrastra la jornada siguiente
+      const nuevas = fechasEditadas(r, ed)
+      const cambio = (ev, nuevo) => ev && nuevo && nuevo.substring(0, 16) !== ev.fecha.substring(0, 16) ? nuevo : null
+      return { id, inicio: ed.inicio ? cambio(ini, nuevas.inicio) : null, fin: ed.fin ? cambio(fi, nuevas.fin) : null }
     })
     setGuardandoRevision(true)
     try {
@@ -541,6 +559,7 @@ function ReporteActividades() {
   const alertaAlmuerzo = (t) => 'sinAlmuerzo' in t ? t.sinAlmuerzo > 0 : !t.almuerzoRegistrado
   const textoAlmuerzo = (t) => 'sinAlmuerzo' in t
     ? `${fmtMin(t.almuerzo)}${t.sinAlmuerzo ? ` (⚠ ${t.sinAlmuerzo} ${t.sinAlmuerzo === 1 ? 'jornada' : 'jornadas'} sin registrar)` : ''}`
+    : t.sinAlmuerzoMarcado ? '0m (sin almuerzo)'
     : t.almuerzoRegistrado ? `${fmtMin(t.almuerzo)} (registrado)` : `${fmtMin(t.almuerzo)} (⚠ no registrado)`
 
   const generarHtmlReporte = (titulo, subtitulo, periodo, tablas) => {
@@ -617,7 +636,8 @@ function ReporteActividades() {
     getReporteFiltrados().forEach(r => { const op = r.usuario || 'Sin operador'; (porOperador[op] ||= []).push(r) })
     return Object.entries(porOperador).sort((a, b) => a[0].localeCompare(b[0])).map(([operador, regs]) => {
       // De la mas reciente a la mas antigua (jornadas y actividades dentro de cada una)
-      const jornadas = armarJornadas(regs, cfgJornada).filter(j =>
+      const diasSinAlmuerzo = new Set([...sinAlmuerzo].filter(k => k.startsWith(`${operador}|`)).map(k => k.slice(operador.length + 1)))
+      const jornadas = armarJornadas(regs, { ...cfgJornada, diasSinAlmuerzo }).filter(j =>
         (!reporteFechaDesde || j.dia >= reporteFechaDesde) && (!reporteFechaHasta || j.dia <= reporteFechaHasta))
         .reverse().map(j => ({ ...j, regs: [...j.regs].reverse() }))
       return { operador, jornadas, tot: totalizarJornadas(jornadas) }
@@ -1070,6 +1090,16 @@ function ReporteActividades() {
                             <span style={{background: j.turno === 'NOCHE' ? '#1565c0' : '#6c757d', color: 'white', padding: '0 5px', borderRadius: '4px', fontSize: '0.65rem'}}>{etiquetaTurno(j)}</span>
                             {tipo && <span style={{background: '#dc3545', color: 'white', padding: '0 5px', borderRadius: '4px', fontSize: '0.65rem'}}>{tipo}</span>}
                             <span style={{color: 'var(--color-text-secondary)', fontSize: '0.7rem'}}>{regsDia.length} {regsDia.length === 1 ? 'actividad' : 'actividades'}</span>
+                            {/* Con / sin almuerzo: solo si no registro su receso */}
+                            {puedeRevisar && (!j.almuerzoRegistrado || j.sinAlmuerzoMarcado) && (
+                              <label title="Marque si el operador NO almorzó en esta jornada: no se descuenta el almuerzo"
+                                style={{display: 'inline-flex', alignItems: 'center', gap: '0.25rem', fontSize: '0.7rem', cursor: 'pointer',
+                                  padding: '0 6px', borderRadius: '4px', border: '1px solid var(--color-border)', background: j.sinAlmuerzoMarcado ? '#e8f5e9' : 'transparent',
+                                  color: j.sinAlmuerzoMarcado ? '#1b5e20' : 'var(--color-text-secondary)'}}>
+                                <input type="checkbox" checked={!!j.sinAlmuerzoMarcado} onChange={e => marcarSinAlmuerzo(operador, j.dia, e.target.checked)} />
+                                Sin almuerzo
+                              </label>
+                            )}
                           </div>
                           {chipsHoras(j)}
                         </div>

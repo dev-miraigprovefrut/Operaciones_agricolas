@@ -1,6 +1,6 @@
 import { memo } from 'react'
 import HoraRueda from './HoraRueda'
-import { diaISO } from '../utils/jornadas'
+import { diaISO, fechasEditadas } from '../utils/jornadas'
 
 /**
  * Tabla de actividades de UNA jornada en el Reporte de actividades.
@@ -63,6 +63,9 @@ function TablaJornada({ j, sel, ed, puedeRevisar, onToggle, onMarcar, onEditar, 
             const inicio = eventoInicio(r)
             const fin = eventoFin(r)
             const revisable = esRevisable(r)
+            // Con horas corregidas: el dia que va a quedar (se elige solo)
+            const nuevas = ediciones[r.id] ? fechasEditadas(r, ediciones[r.id]) : null
+            const evMostrado = (campo, ev) => (nuevas?.[campo] ? { ...ev, fecha: nuevas[campo] } : ev)
             return (
               <tr key={r.id}>
                 <td>{r.tractor || '-'}</td>
@@ -74,7 +77,7 @@ function TablaJornada({ j, sel, ed, puedeRevisar, onToggle, onMarcar, onEditar, 
                 <td>{r.hacienda || '-'}</td>
                 {[['inicio', inicio], ['fin', fin]].map(([campo, ev]) => (
                   <td key={campo} style={{whiteSpace: 'nowrap'}}>
-                    {otroDia(ev) && <span style={{display: 'block', fontSize: '0.65rem', color: '#e67e22', fontWeight: 600}} title="Otro día que el inicio de la jornada">{otroDia(ev)}</span>}
+                    {otroDia(evMostrado(campo, ev)) && <span style={{display: 'block', fontSize: '0.65rem', color: '#e67e22', fontWeight: 600}} title="Otro día que el inicio de la jornada">{otroDia(evMostrado(campo, ev))}</span>}
                     {revisable && ev ? (
                       <HoraRueda
                         value={ediciones[r.id]?.[campo] || horaDe(ev.fecha)}

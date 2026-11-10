@@ -941,3 +941,36 @@ def guardar_parametros_jornada(body: JornadaIn, db: Session = Depends(get_db),
         raise HTTPException(503, "Falta crear la tabla parametro en la base (sql/01_schema.sql)") from e
     db.refresh(p)
     return _jornada_out(p)
+
+
+# --------------------------------------- jornadas SIN almuerzo (las marca quien revisa)
+# No todos los tractoristas almuerzan: en esas jornadas no se descuenta el
+# almuerzo fijo. Lista "operador|AAAA-MM-DD" en parametro 'jornadas_sin_almuerzo'.
+class SinAlmuerzoIn(BaseModel):
+    operador: str = Field(min_length=1, max_length=150)
+    dia: date
+    sin_almuerzo: bool
+
+
+@router.get("/parametros/sin-almuerzo")
+def ver_sin_almuerzo(db: Session = Depends(get_db),
+                     _: Usuario = Depends(requiere("reportes_actividades", "revisar_actividades"))):
+    p = _parametro(db, "jornadas_sin_almuerzo")
+    return list((p.valor or {}).get("lista", [])) if p else []
+
+
+@router.put("/parametros/sin-almuerzo")
+def marcar_sin_almuerzo(body: SinAlmuerzoIn, db: Session = Depends(get_db),
+                        user: Usuario = Depends(requiere("revisar_actividades"))):
+    clave = f"{body.operador.strip()}|{body.dia.isoformat()}"
+    p = _parametro(db, "jornadas_sin_almuerzo")
+    if p is None:
+        p = Parametro(clave="jornadas_sin_almuerzo", valor={"lista": []})
+        db.add(p)
+    lista = set((p.valor or {}).get("lista", []))
+    (lista.add if body.sin_almuerzo else lista.discard)(clave)
+    p.valor = {"lista": sorted(lista)}
+    p.actualizado_por, p.fecha_actualizacion = user.username, ahora_ecuador()
+    flag_modified(p, "valor")
+    db.commit()
+    return sorted(lista)
