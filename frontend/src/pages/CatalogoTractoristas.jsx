@@ -42,7 +42,8 @@ function CatalogoTractoristas() {
   const elegirPersona = (p) => {
     setPersonaSel(p)
     const { nombre, apellido } = separarNombreApellido(p.nombre)
-    setFormData(f => ({ ...f, codigo: p.cedula, nombre, apellido, username: generarUsername(nombre, apellido) }))
+    setFormData(f => ({ ...f, codigo: p.cedula, nombre, apellido, username: generarUsername(nombre, apellido),
+      funcion: /DRON/i.test(p.cargo || '') ? 'DRON' : 'TRACTOR' }))
   }
 
   const abrirNuevo = () => {
