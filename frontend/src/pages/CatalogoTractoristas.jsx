@@ -3,7 +3,7 @@ import Swal from 'sweetalert2'
 import TabletsTractor from '../components/TabletsTractor'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8007'
-const FUNCIONES = { TRACTOR: 'Tractorista', DRON: 'Piloto de dron', AMBOS: 'Tractorista y piloto de dron' }
+const FUNCIONES = { TRACTOR: 'Tractorista', DRON: 'Piloto de dron' }
 
 function CatalogoTractoristas() {
   const [tractoristas, setTractoristas] = useState([])
@@ -28,7 +28,25 @@ function CatalogoTractoristas() {
     finally { setLoading(false) }
   }
 
+  // Nuevo: se elige la persona del maestro de Personas (cedula y nombre vienen de ahi)
+  const [personal, setPersonal] = useState(null)
+  const [buscaPersona, setBuscaPersona] = useState('')
+  const [personaSel, setPersonaSel] = useState(null)
+  const cargarPersonal = async () => {
+    setPersonal(null)
+    try {
+      const res = await fetch(`${API_URL}/api/tractoristas/personal`)
+      setPersonal(res.ok ? await res.json() : [])
+    } catch { setPersonal([]) }
+  }
+  const elegirPersona = (p) => {
+    setPersonaSel(p)
+    const { nombre, apellido } = separarNombreApellido(p.nombre)
+    setFormData(f => ({ ...f, codigo: p.cedula, nombre, apellido, username: generarUsername(nombre, apellido) }))
+  }
+
   const abrirNuevo = () => {
+    setPersonaSel(null); setBuscaPersona(''); cargarPersonal()
     setEditando(null)
     setFormData({ codigo: '', nombre: '', apellido: '', cargo: 'Tractorista', estado: 'Activo', username: '', funcion: 'TRACTOR' })
     setDrawerOpen(true)
@@ -226,6 +244,42 @@ function CatalogoTractoristas() {
         </div>
         <div className="drawer-content">
           <div className="drawer-section">
+            {!editando && (
+              <div className="form-group">
+                <label className="form-label">Persona (maestro de Personas) <span className="required">*</span></label>
+                {personaSel ? (
+                  <div style={{display: 'flex', alignItems: 'center', gap: '0.5rem', padding: '0.5rem', border: '1px solid var(--color-border, #555)', borderRadius: '6px'}}>
+                    <div style={{flex: 1}}>
+                      <strong>{personaSel.nombre}</strong>
+                      <div style={{fontSize: '0.75rem', color: 'var(--color-text-secondary)'}}>{personaSel.cedula} · {personaSel.cargo || 'Sin cargo'}</div>
+                    </div>
+                    <button className="btn btn-sm" onClick={() => setPersonaSel(null)}>Cambiar</button>
+                  </div>
+                ) : (
+                  <>
+                    <input id="buscar-persona" type="text" className="form-control" value={buscaPersona} onChange={e => setBuscaPersona(e.target.value)}
+                      placeholder="Buscar por nombre o cédula..." autoComplete="off" />
+                    <div style={{maxHeight: '260px', overflowY: 'auto', marginTop: '0.4rem', display: 'grid', gap: '2px'}}>
+                      {personal === null && <small style={{color: 'var(--color-text-secondary)'}}>Cargando personal...</small>}
+                      {personal && (() => {
+                        const q = buscaPersona.trim().toLowerCase()
+                        const lista = personal.filter(p => !q || (p.nombre || '').toLowerCase().includes(q) || (p.cedula || '').includes(q)).slice(0, 50)
+                        if (!lista.length) return <small style={{color: 'var(--color-text-secondary)'}}>No hay personas que coincidan (o ya están en el catálogo).</small>
+                        return lista.map(p => (
+                          <button key={p.cedula} type="button" onClick={() => elegirPersona(p)}
+                            style={{textAlign: 'left', padding: '0.45rem 0.6rem', border: 'none', borderRadius: '4px', cursor: 'pointer',
+                              background: 'var(--color-bg-light)', color: 'var(--color-text)'}}>
+                            <strong style={{fontSize: '0.85rem'}}>{p.nombre}</strong>
+                            <div style={{fontSize: '0.72rem', color: 'var(--color-text-secondary)'}}>{p.cedula} · {p.cargo || 'Sin cargo'}</div>
+                          </button>
+                        ))
+                      })()}
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+            {editando && <>
             <div className="form-group">
               <label className="form-label">Código</label>
               <input type="text" className="form-control" value={formData.codigo} onChange={e => setFormData({...formData, codigo: e.target.value.toLowerCase()})} placeholder="Código del tractorista" />
@@ -238,6 +292,7 @@ function CatalogoTractoristas() {
               <label className="form-label">Apellidos <span className="required">*</span></label>
               <input type="text" className="form-control" value={formData.apellido} onChange={e => { const v = e.target.value.toUpperCase(); setFormData(f => ({...f, apellido: v, username: generarUsername(f.nombre, v)})) }} placeholder="Apellido" />
             </div>
+            </>}
             <div className="form-group">
               <label className="form-label">Usuario</label>
               <input type="text" className="form-control" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value.toLowerCase()})} placeholder="Usuario del tractorista" style={{textTransform: 'lowercase'}} />
@@ -265,7 +320,7 @@ function CatalogoTractoristas() {
             </button>
           )}
           <div style={{flex:1}}></div>
-          <button className="btn btn-primary" onClick={handleGuardar} disabled={!formData.nombre.trim() || !formData.apellido.trim()}>
+          <button className="btn btn-primary" onClick={handleGuardar} disabled={editando ? (!formData.nombre.trim() || !formData.apellido.trim()) : !personaSel}>
             <i className='bx bx-save'></i> Guardar
           </button>
         </div>

@@ -344,12 +344,17 @@ def baja_dispositivo(id_tractorista: int, db: Session = Depends(get_db),
 
 @router.get("/tractoristas/personal")
 def personal_tractorista(db: Session = Depends(get_db), user: Usuario = Depends(requiere("catalogos_tractoristas"))):
-    """Personal de la empresa con cargo de tractorista en Personas que aun no
-    tiene credencial en el modulo (para agregarlos)."""
+    """Personal ACTIVO de la empresa en el maestro de Personas que aun no esta
+    en el catalogo de Operadores (para agregarlo: tractorista o piloto de dron,
+    cualquier cargo). Los de cargo tractorista van primero."""
     ya = set(db.scalars(select(Tractorista.cedula)))
-    return [{"cedula": e["cedula"], "nombre": e["nombre_completo"], "cargo": e.get("cargo_nombre")}
-            for e in personas.catalogo_empresa(user.token)
-            if e.get("activo") and "TRACTOR" in (e.get("cargo_nombre") or "").upper() and e["cedula"] not in ya]
+    try:
+        gente = personas.catalogo_empresa(user.token)
+    except personas.PersonasError as e:
+        raise HTTPException(502, e.detalle)
+    out = [{"cedula": e["cedula"], "nombre": e["nombre_completo"], "cargo": e.get("cargo_nombre")}
+           for e in gente if e.get("activo") and e.get("cedula") and e["cedula"] not in ya]
+    return sorted(out, key=lambda e: ("TRACTOR" not in (e["cargo"] or "").upper(), e["nombre"] or ""))
 
 
 def _datos_tractorista(data: dict, user: Usuario) -> tuple[str, dict, str | None]:
