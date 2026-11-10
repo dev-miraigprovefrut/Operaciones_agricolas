@@ -218,16 +218,21 @@ export function fechasEditadas(r, ed = {}) {
     d.setDate(d.getDate() + n)
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}${iso.substring(10)}`
   }
+  const horaDe = (iso) => (iso || '').substring(11, 16)
   let inicio = ini
-  if (ini && ed.inicio) {
+  if (ini && ed.inicioDia) {
+    inicio = `${ed.inicioDia}T${ed.inicio || horaDe(ini)}:00`       // dia elegido a mano
+  } else if (ini && ed.inicio) {
     inicio = conHora(ini, ed.inicio)
-    if (fi && !ed.fin) {
+    if (fi && !ed.fin && !ed.finDia) {
       inicio = conHora(fi, ed.inicio)
       if (corto(inicio) > corto(fi)) inicio = moverDia(inicio, -1)
     }
   }
   let fin = fi
-  if (fi && ed.fin) {
+  if (fi && ed.finDia) {
+    fin = `${ed.finDia}T${ed.fin || horaDe(fi)}:00`                  // dia elegido a mano
+  } else if (fi && ed.fin) {
     fin = conHora(inicio || fi, ed.fin)
     if (inicio && corto(fin) <= corto(inicio)) fin = moverDia(fin, 1)
   }

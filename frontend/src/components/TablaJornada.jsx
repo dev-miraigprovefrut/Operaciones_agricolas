@@ -77,11 +77,19 @@ function TablaJornada({ j, sel, ed, puedeRevisar, onToggle, onMarcar, onEditar, 
                 <td>{r.hacienda || '-'}</td>
                 {[['inicio', inicio], ['fin', fin]].map(([campo, ev]) => (
                   <td key={campo} style={{whiteSpace: 'nowrap'}}>
-                    {otroDia(evMostrado(campo, ev)) && <span style={{display: 'block', fontSize: '0.65rem', color: '#e67e22', fontWeight: 600}} title="Otro día que el inicio de la jornada">{otroDia(evMostrado(campo, ev))}</span>}
+                    {revisable && ev ? (
+                      // Fecha editable (actividad que se olvido cerrar: se corrige dia y hora)
+                      <input type="date" value={evMostrado(campo, ev).fecha.substring(0, 10)} title="Fecha"
+                        onChange={e => e.target.value && onEditar(r, `${campo}Dia`, e.target.value)}
+                        style={{display: 'block', fontSize: '0.68rem', padding: '0 2px', marginBottom: '2px', border: '1px solid var(--color-border)',
+                          borderRadius: '3px', background: 'transparent', color: otroDia(evMostrado(campo, ev)) || ediciones[r.id]?.[`${campo}Dia`] ? '#e67e22' : 'var(--color-text-secondary)',
+                          fontWeight: otroDia(evMostrado(campo, ev)) ? 600 : 400, colorScheme: 'light dark'}} />
+                    ) : otroDia(ev) && <span style={{display: 'block', fontSize: '0.65rem', color: '#e67e22', fontWeight: 600}} title="Otro día que el inicio de la jornada">{otroDia(ev)}</span>}
                     {revisable && ev ? (
                       <HoraRueda
                         value={ediciones[r.id]?.[campo] || horaDe(ev.fecha)}
-                        modificado={!!ediciones[r.id]?.[campo] && ediciones[r.id][campo] !== horaDe(ev.fecha)}
+                        modificado={(!!ediciones[r.id]?.[campo] && ediciones[r.id][campo] !== horaDe(ev.fecha))
+                          || evMostrado(campo, ev).fecha.substring(0, 10) !== ev.fecha.substring(0, 10)}
                         onChange={hhmm => onEditar(r, campo, hhmm)} />
                     ) : (ev ? fmtHora(new Date(ev.fecha)) : '-')}
                   </td>

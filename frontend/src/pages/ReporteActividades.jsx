@@ -182,7 +182,8 @@ function ReporteActividades() {
       // que no se cerro la deja en su dia y no arrastra la jornada siguiente
       const nuevas = fechasEditadas(r, ed)
       const cambio = (ev, nuevo) => ev && nuevo && nuevo.substring(0, 16) !== ev.fecha.substring(0, 16) ? nuevo : null
-      return { id, inicio: ed.inicio ? cambio(ini, nuevas.inicio) : null, fin: ed.fin ? cambio(fi, nuevas.fin) : null }
+      return { id, inicio: ed.inicio || ed.inicioDia ? cambio(ini, nuevas.inicio) : null,
+        fin: ed.fin || ed.finDia ? cambio(fi, nuevas.fin) : null }
     })
     setGuardandoRevision(true)
     try {
