@@ -203,6 +203,15 @@ def _es_token_tractorista(token: str) -> bool:
         return False
 
 
+def _es_dominio_campo(request: Request) -> bool:
+    """La llamada viene de tractoristas.* o dron.* (o sin Origin: scripts/kiosko)."""
+    origen = (request.headers.get("origin") or request.headers.get("referer") or "").lower()
+    if not origen:
+        return True
+    host = origen.split("://", 1)[-1]
+    return host.startswith(("tractoristas.", "dron."))
+
+
 def get_current_user(request: Request, db: Session = Depends(get_db)) -> Usuario:
     # Tablet del tractor (APK): varios tractoristas en el mismo equipo; cada
     # accion (tambien las que se envian tarde desde la cola sin internet) va con
@@ -210,6 +219,11 @@ def get_current_user(request: Request, db: Session = Depends(get_db)) -> Usuario
     token = _token_hub(request)
     if token and _es_token_tractorista(token):
         return _usuario_tractorista(token, db)
+    # La cookie del tractorista/piloto vale para todo *.miraigprovefrut.com:
+    # en la app de la OFICINA (operacionesa) manda el usuario del HUB; la del
+    # tractorista solo en los dominios de campo (tractoristas. / dron.).
+    if token and not _es_dominio_campo(request):
+        return _usuario_hub(token)
     # La sesion de tractorista es explicita de este modulo: si existe, manda.
     tok_t = request.cookies.get(settings.COOKIE_TRACTORISTA_NAME)
     if tok_t:
