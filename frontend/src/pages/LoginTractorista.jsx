@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useEmpresas } from '../services/useEmpresas'
 import { logoUrl } from '../services/empresasService'
+import { esDominioDron, rutaBitacora } from '../services/sesion'
 import { llaveDispositivo, nombreDispositivo, guardarIngresoOffline, hayIngresoOffline, ingresarOffline, nombreGuardado } from '../services/dispositivo'
 
 // fetch lanza TypeError cuando no hay red (o AbortError si la señal no da datos)
@@ -206,7 +207,7 @@ function LoginTractorista() {
     setError('')
     const entrarSinRed = async () => {
       await ingresarOffline(username.trim(), pin)
-      window.location.href = '/registrar/actividades'
+      window.location.href = rutaBitacora()
     }
     try {
       if (sinRed || navigator.onLine === false) { await entrarSinRed(); return }
@@ -216,7 +217,8 @@ function LoginTractorista() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username: username.trim(), pin,
-            dispositivo: llaveDispositivo(), dispositivo_nombre: nombreDispositivo() })
+            dispositivo: llaveDispositivo(), dispositivo_nombre: nombreDispositivo(),
+            equipo: esDominioDron() ? 'Drones' : 'Tractores' })
         })
       } catch (err) {
         if (esSinRed(err) && hayIngresoOffline(username.trim())) { await entrarSinRed(); return }
@@ -234,7 +236,7 @@ function LoginTractorista() {
       localStorage.setItem('tractorista_username', username.trim())
       localStorage.setItem('tractorista_cedula', cedula.trim())
 
-      window.location.href = '/registrar/actividades'
+      window.location.href = rutaBitacora()
     } catch (err) {
       setError(err.message)
       setPin('')
@@ -448,7 +450,7 @@ function LoginTractorista() {
               margin: 0, color: 'rgba(255,255,255,0.85)',
               fontSize: '0.85rem', fontWeight: 400
             }}>
-              Acceso Tractoristas
+              {esDominioDron() ? 'Acceso Pilotos de Dron' : 'Acceso Tractoristas'}
             </p>
           </div>
         </div>

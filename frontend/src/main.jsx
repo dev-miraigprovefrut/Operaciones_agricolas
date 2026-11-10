@@ -2,7 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
-import { API_URL, cargarSesion, cerrarSesion, limpiarDatosSesion, renovarSesion, esTractorista, esTelefonoCampo, cerrarPestana, HUB_LOGIN_URL, HUB_URL, haySesionGuardada } from './services/sesion.js'
+import { API_URL, cargarSesion, cerrarSesion, limpiarDatosSesion, renovarSesion, esTractorista, esTelefonoCampo, cerrarPestana, HUB_LOGIN_URL, HUB_URL, haySesionGuardada, esDominioDron } from './services/sesion.js'
 import { huboActividad, alVolverActividad } from './services/actividad.js'
 import { esApp, tabletVinculada, iniciarModoTablet } from './services/tablet.js'
 
@@ -15,7 +15,9 @@ if (window.location.pathname.startsWith('/sso-login')) {
   window.history.replaceState(null, '', '/')
 }
 
-const esDominioTractoristas = window.location.hostname.startsWith('tractoristas')
+// tractoristas.miraigprovefrut.com (Bitacora Tractor) y dron.miraigprovefrut.com
+// (Bitacora Dron, pilotos): mismo ingreso con cedula + codigo
+const esDominioTractoristas = window.location.hostname.startsWith('tractoristas') || esDominioDron()
 const esRutaPublica = window.location.pathname.startsWith('/login-tractorista') || window.location.pathname.startsWith('/vincular-tablet')
   || window.location.pathname.startsWith('/kiosko')
 

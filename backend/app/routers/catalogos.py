@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from ..auth import Usuario, get_current_user, requiere, sesion_o_kiosko
 from ..clients import personas
+from .. import funciones
 from ..comun import estado_api, estado_db
 from ..config import settings
 from ..database import get_db
@@ -285,8 +286,9 @@ def eliminar_supervisor(supervisor_id: int, db: Session = Depends(get_db),
 # persona viene del maestro Personas (por cedula) y aqui solo esta su
 # credencial (tractorista). La forma de la respuesta no cambia para la pantalla:
 # codigo = cedula, nombre = APELLIDOS NOMBRES.
-def _tractorista(t: Tractorista, p: dict | None, d: TractoristaDispositivo | None = None) -> dict:
+def _tractorista(t: Tractorista, p: dict | None, d: TractoristaDispositivo | None = None, funcion: str = "TRACTOR") -> dict:
     return {"id": t.id, "codigo": t.cedula, "nombre": personas.nombre_legal(p) or t.cedula, "cargo": "Tractorista",
+            "funcion": funcion,
             "estado": estado_api(t.estado), "creado_en": str(t.fecha_creacion) if t.fecha_creacion else None,
             "actualizado_en": None, "username": t.username, "id_persona": t.id_persona,
             "tiene_pin": bool(t.pin_hash) and not t.pin_temporal,
@@ -302,7 +304,8 @@ def listar_tractoristas(db: Session = Depends(get_db), user: Usuario = Depends(r
     gente = personas.lote([t.id_persona for t in filas], user.token)
     disp = {d.id_tractorista: d for d in db.scalars(
         select(TractoristaDispositivo).where(TractoristaDispositivo.activo.is_(True)))}
-    out = [_tractorista(t, gente.get(t.id_persona), disp.get(t.id)) for t in filas]
+    func_ = funciones.todas(db)
+    out = [_tractorista(t, gente.get(t.id_persona), disp.get(t.id), func_.get(t.id, "TRACTOR")) for t in filas]
     return sorted(out, key=lambda r: r["nombre"])
 
 
@@ -371,7 +374,17 @@ def crear_tractorista(data: dict, db: Session = Depends(get_db),
                     estado=estado_db(data.get("estado")))
     db.add(t)
     _guardar(db, "Ese tractorista (cédula o usuario) ya existe")
+    if data.get("funcion"):
+        _guardar_funcion(db, t.id, data["funcion"], user)
     return {"id": t.id, "message": "Tractorista creado"}
+
+
+def _guardar_funcion(db: Session, id_tractorista: int, funcion: str, user: Usuario) -> None:
+    try:
+        funciones.guardar(db, id_tractorista, funcion, user.username)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    db.commit()
 
 
 @router.put("/tractoristas/{id_tractorista}")
@@ -388,6 +401,8 @@ def editar_tractorista(id_tractorista: int, data: dict, db: Session = Depends(ge
     if "estado" in data:
         t.estado = estado_db(data["estado"])
     _guardar(db, "Ese tractorista (cédula o usuario) ya existe")
+    if "funcion" in data:
+        _guardar_funcion(db, t.id, data["funcion"], user)
     return {"message": "Tractorista actualizado"}
 
 

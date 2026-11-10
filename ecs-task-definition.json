@@ -116,7 +116,7 @@
         },
         {
           "name": "CORS_ORIGINS",
-          "value": "https://agricola.miraigprovefrut.com,https://operacionesa.miraigprovefrut.com,https://tractoristas.miraigprovefrut.com"
+          "value": "https://agricola.miraigprovefrut.com,https://operacionesa.miraigprovefrut.com,https://tractoristas.miraigprovefrut.com,https://dron.miraigprovefrut.com"
         },
         {
           "name": "DEBUG",

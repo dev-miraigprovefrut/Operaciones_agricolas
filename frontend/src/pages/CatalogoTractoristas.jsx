@@ -3,6 +3,7 @@ import Swal from 'sweetalert2'
 import TabletsTractor from '../components/TabletsTractor'
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8007'
+const FUNCIONES = { TRACTOR: 'Tractorista', DRON: 'Piloto de dron', AMBOS: 'Tractorista y piloto de dron' }
 
 function CatalogoTractoristas() {
   const [tractoristas, setTractoristas] = useState([])
@@ -10,7 +11,7 @@ function CatalogoTractoristas() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editando, setEditando] = useState(null)
   const [busqueda, setBusqueda] = useState('')
-  const [formData, setFormData] = useState({ codigo: '', nombre: '', apellido: '', cargo: 'Tractorista', estado: 'Activo', username: '' })
+  const [formData, setFormData] = useState({ codigo: '', nombre: '', apellido: '', cargo: 'Tractorista', estado: 'Activo', username: '', funcion: 'TRACTOR' })
 
   useEffect(() => { fetchData() }, [])
 
@@ -29,7 +30,7 @@ function CatalogoTractoristas() {
 
   const abrirNuevo = () => {
     setEditando(null)
-    setFormData({ codigo: '', nombre: '', apellido: '', cargo: 'Tractorista', estado: 'Activo', username: '' })
+    setFormData({ codigo: '', nombre: '', apellido: '', cargo: 'Tractorista', estado: 'Activo', username: '', funcion: 'TRACTOR' })
     setDrawerOpen(true)
   }
 
@@ -60,7 +61,7 @@ function CatalogoTractoristas() {
     setEditando(t)
     const { nombre, apellido } = separarNombreApellido(t.nombre)
     const usr = t.username ? t.username.toLowerCase() : generarUsername(nombre, apellido)
-    setFormData({ codigo: t.codigo || '', nombre, apellido, cargo: t.cargo || '', estado: t.estado || 'Activo', username: usr })
+    setFormData({ codigo: t.codigo || '', nombre, apellido, cargo: t.cargo || '', estado: t.estado || 'Activo', username: usr, funcion: t.funcion || 'TRACTOR' })
     setDrawerOpen(true)
   }
 
@@ -70,8 +71,9 @@ function CatalogoTractoristas() {
       const url = editando ? `${API_URL}/api/tractoristas/${editando.id}` : `${API_URL}/api/tractoristas`
       const method = editando ? 'PUT' : 'POST'
       const nombreCompleto = `${formData.apellido.trim()} ${formData.nombre.trim()}`.trim()
-      const payload = { codigo: formData.codigo, nombre: nombreCompleto, cargo: formData.cargo, estado: formData.estado, username: formData.username.toLowerCase() }
-      await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      const payload = { codigo: formData.codigo, nombre: nombreCompleto, cargo: formData.cargo, estado: formData.estado, username: formData.username.toLowerCase(), funcion: formData.funcion }
+      const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
+      if (!res.ok) return Swal.fire('No se pudo guardar', (await res.json().catch(() => ({}))).detail || '', 'error')
       await fetchData()
       setDrawerOpen(false)
     } catch (err) { console.error(err) }
@@ -163,7 +165,7 @@ function CatalogoTractoristas() {
               <th>Código</th>
               <th>Nombre</th>
               <th>Usuario</th>
-              <th>Cargo</th>
+              <th>Función</th>
               <th>Estado</th>
               <th>Teléfono</th>
               <th style={{width: '1%'}}></th>
@@ -175,7 +177,7 @@ function CatalogoTractoristas() {
                 <td>{t.codigo || '-'}</td>
                 <td><strong>{t.nombre}</strong></td>
                 <td style={{textTransform: 'lowercase'}}>{t.username || '-'}</td>
-                <td>{t.cargo || '-'}</td>
+                <td>{FUNCIONES[t.funcion] || FUNCIONES.TRACTOR}</td>
                 <td><span style={{background: t.estado === 'Activo' ? '#28a745' : '#dc3545', color: 'white', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem'}}>{t.estado}</span></td>
                 <td onClick={e => e.stopPropagation()} style={{cursor: 'default'}}>
                   {t.dispositivo ? (
@@ -239,6 +241,13 @@ function CatalogoTractoristas() {
             <div className="form-group">
               <label className="form-label">Usuario</label>
               <input type="text" className="form-control" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value.toLowerCase()})} placeholder="Usuario del tractorista" style={{textTransform: 'lowercase'}} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Función</label>
+              <select className="form-control" value={formData.funcion} onChange={e => setFormData({...formData, funcion: e.target.value})}>
+                {Object.entries(FUNCIONES).map(([v, txt]) => <option key={v} value={v}>{txt}</option>)}
+              </select>
+              <small style={{color: 'var(--color-text-secondary)'}}>Tractorista entra en tractoristas.miraigprovefrut.com; piloto de dron en dron.miraigprovefrut.com.</small>
             </div>
             <div className="form-group">
               <label className="form-label">Estado</label>

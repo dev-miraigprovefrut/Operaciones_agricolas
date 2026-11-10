@@ -185,8 +185,12 @@ def _usuario_tractorista(token: str, db: Session) -> Usuario:
         from .routers.tablets import tablet_activa
         if not tablet_activa(db, p["tablet"]):
             raise HTTPException(401, TELEFONO_DE_BAJA)
+    # Pestanas segun su funcion (tractor / piloto de dron / ambos): Catalogos > Tractoristas
+    from .funciones import PESTANAS_POR_FUNCION, de as funcion_de
+    funcion = funcion_de(db, t.id)
     return Usuario(username=t.username or t.cedula, tipo=TIPO_TRACTORISTA, nombre=p.get("nombre") or t.username,
-                   rol="Tractorista", exp=p.get("exp"), pestanas=list(PESTANAS_TRACTORISTA),
+                   rol="Piloto de dron" if funcion == "DRON" else "Tractorista", exp=p.get("exp"),
+                   pestanas=list(PESTANAS_POR_FUNCION[funcion]),
                    id_tractorista=t.id, id_persona=t.id_persona, claims=p)
 
 

@@ -18,6 +18,7 @@ from ..comun import ahora_ecuador
 from ..config import settings
 from ..database import get_db
 from ..models import Tractorista
+from .. import funciones
 
 router = APIRouter()
 
@@ -74,6 +75,7 @@ class TractoristaLogin(BaseModel):
     pin: str
     dispositivo: str | None = None          # llave del telefono (solo vive en el)
     dispositivo_nombre: str | None = None   # "Android 14 · Chrome"
+    equipo: str | None = None               # Drones = dron.miraigprovefrut.com; si no, Tractores
 
 
 def _nombre(t: Tractorista) -> str:
@@ -137,7 +139,7 @@ def verificar(data: TractoristaVerificar, db: Session = Depends(get_db)):
     # tiene_pin: tiene un codigo PROPIO; si no, debe ingresar el temporal del catalogo
     return {"valido": True, "username": t.username, "nombre": _nombre(t),
             "tiene_pin": bool(t.pin_hash) and not t.pin_temporal, "pin_expirado": False,
-            "requiere_temporal": bool(t.pin_temporal)}
+            "requiere_temporal": bool(t.pin_temporal), "funcion": funciones.de(db, t.id)}
 
 
 def _usuario_y_cedula(db: Session, data: TractoristaRegistro) -> Tractorista:
@@ -196,6 +198,13 @@ def login(data: TractoristaLogin, response: Response, db: Session = Depends(get_
         _comprobar(db, t, data.pin, ahora)
         raise HTTPException(409, "Código temporal correcto: cree su código propio.")
     _comprobar(db, t, data.pin, ahora)
+
+    # Piloto de dron / tractorista: cada uno entra por su dominio
+    funcion = funciones.de(db, t.id)
+    if not funciones.puede_entrar(funcion, data.equipo):
+        if data.equipo == "Drones":
+            raise HTTPException(403, "No está registrado como piloto de dron. Pídalo a su supervisor (Catálogos › Tractoristas).")
+        raise HTTPException(403, "Está registrado como piloto de dron: ingrese por dron.miraigprovefrut.com")
 
     # Telefono registrado: uno activo por tractorista. Otro telefono no entra
     # hasta que den de baja el anterior en Catalogos > Tractoristas.

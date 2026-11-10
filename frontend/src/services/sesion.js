@@ -24,6 +24,10 @@ const esApi = (url) => typeof url === 'string' && url.startsWith(API_URL)
 const RUTAS_SIN_REINTENTO = ['/api/tractoristas/', '/api/auth/me']
 
 export const esTractorista = () => localStorage.getItem('usuario_tipo') === 'tractorista'
+/** dron.miraigprovefrut.com: telefonos de los pilotos de dron (Bitacora Dron). */
+export const esDominioDron = () => window.location.hostname.startsWith('dron')
+/** Bitacora del dominio de campo: la del dron o la del tractor. */
+export const rutaBitacora = () => (esDominioDron() ? '/registrar/dron' : '/registrar/actividades')
 /** Sesion de telefono de campo del HUB (supervisores sin señal): no se corta por inactividad. */
 export const esTelefonoCampo = () => localStorage.getItem('usuario_campo') === '1'
 

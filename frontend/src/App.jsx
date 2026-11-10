@@ -25,7 +25,7 @@ import { useEmpresas } from './services/useEmpresas'
 import { logoUrl } from './services/empresasService'
 import { useModoColor } from './services/useModoColor'
 import { aplicarTema } from './utils/aplicarTema'
-import { cerrarSesion } from './services/sesion'
+import { cerrarSesion, esDominioDron, rutaBitacora } from './services/sesion'
 import './App.css'
 import { useUrlAyuda } from './utils/ayuda'
 
@@ -218,7 +218,7 @@ function App() {
   const [menuOpen, setMenuOpen] = useState(false)
   const [modoEntrenamiento, setModoEntrenamiento] = useState(localStorage.getItem('modo_entrenamiento') === 'true')
   const esTractorista = localStorage.getItem('usuario_tipo') === 'tractorista'
-  const esDominioTractoristas = window.location.hostname.startsWith('tractoristas')
+  const esDominioTractoristas = window.location.hostname.startsWith('tractoristas') || esDominioDron()
 
   // Tema visual (colores + modo claro/oscuro) desde la tabla compartida
   // `empresas` -- ver TEMA.md. Este modulo no es multi-empresa, pero igual
@@ -305,8 +305,10 @@ function App() {
               </header>
               <main className="app-main">
                 <Routes>
-                  <Route path="/registrar/actividades" element={<RegistrarActTractores />} />
-                  <Route path="*" element={<Navigate to="/registrar/actividades" replace />} />
+                  {esDominioDron()
+                    ? <Route path="/registrar/dron" element={<RegistrarActTractores key="drones" equipo="Drones" />} />
+                    : <Route path="/registrar/actividades" element={<RegistrarActTractores key="tractores" equipo="Tractores" />} />}
+                  <Route path="*" element={<Navigate to={rutaBitacora()} replace />} />
                 </Routes>
               </main>
               <OfflineIndicator />
