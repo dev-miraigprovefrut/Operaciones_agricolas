@@ -81,7 +81,7 @@ function CatalogoTractoristas() {
 
   const handleEliminar = async (id) => {
     const result = await Swal.fire({
-      title: '¿Eliminar tractorista?',
+      title: '¿Eliminar operador?',
       icon: 'warning',
       showCancelButton: true,
       confirmButtonColor: '#dc3545',
@@ -143,8 +143,8 @@ function CatalogoTractoristas() {
     <>
       <div className="page-header" style={{display: 'grid', gridTemplateColumns: '1fr auto', alignItems: 'center'}}>
         <div>
-          <h1><i className='bx bx-user'></i> Tractoristas</h1>
-          <p className="page-subtitle">Catálogo de operadores</p>
+          <h1><i className='bx bx-user'></i> Operadores</h1>
+          <p className="page-subtitle">Tractoristas y pilotos de dron</p>
         </div>
         <button className="btn btn-primary" onClick={abrirNuevo}>
           <i className='bx bx-plus'></i> Nuevo
@@ -209,7 +209,7 @@ function CatalogoTractoristas() {
               </tr>
             ))}
             {filtrados.length === 0 && (
-              <tr><td colSpan="7" style={{textAlign:'center',padding:'2rem',color:'var(--color-text-secondary)'}}>No hay tractoristas</td></tr>
+              <tr><td colSpan="7" style={{textAlign:'center',padding:'2rem',color:'var(--color-text-secondary)'}}>No hay operadores</td></tr>
             )}
           </tbody>
         </table>
@@ -220,7 +220,7 @@ function CatalogoTractoristas() {
       <div className={`drawer ${drawerOpen ? 'open' : ''}`}>
         <div className="drawer-header">
           <div className="drawer-header-top">
-            <h2><i className='bx bx-user'></i> {editando ? 'Editar' : 'Nuevo'} Tractorista</h2>
+            <h2><i className='bx bx-user'></i> {editando ? 'Editar' : 'Nuevo'} Operador</h2>
             <button className="drawer-close" onClick={() => setDrawerOpen(false)}><i className='bx bx-x'></i></button>
           </div>
         </div>

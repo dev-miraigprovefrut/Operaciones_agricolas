@@ -150,7 +150,7 @@ def _usuario_y_cedula(db: Session, data: TractoristaRegistro) -> Tractorista:
     return t
 
 
-SIN_TEMPORAL = "Pida un código temporal a su supervisor (Catálogos › Tractoristas)."
+SIN_TEMPORAL = "Pida un código temporal a su supervisor (Catálogos › Operadores)."
 
 
 @router.post("/api/tractoristas/registro")
@@ -203,7 +203,7 @@ def login(data: TractoristaLogin, response: Response, db: Session = Depends(get_
     funcion = funciones.de(db, t.id)
     if not funciones.puede_entrar(funcion, data.equipo):
         if data.equipo == "Drones":
-            raise HTTPException(403, "No está registrado como piloto de dron. Pídalo a su supervisor (Catálogos › Tractoristas).")
+            raise HTTPException(403, "No está registrado como piloto de dron. Pídalo a su supervisor (Catálogos › Operadores).")
         raise HTTPException(403, "Está registrado como piloto de dron: ingrese por dron.miraigprovefrut.com")
 
     # Telefono registrado: uno activo por tractorista. Otro telefono no entra
@@ -231,7 +231,7 @@ def login(data: TractoristaLogin, response: Response, db: Session = Depends(get_
         db.commit()
         raise HTTPException(403, f"Su usuario ya tiene un teléfono registrado ({d.descripcion}, desde "
                                  f"{d.fecha_alta:%d/%m/%Y}). Si cambió o perdió el celular, pida que lo den de "
-                                 "baja en Catálogos › Tractoristas.")
+                                 "baja en Catálogos › Operadores.")
     else:
         d.ultimo_uso = ahora_ecuador()
     t.intentos_fallidos, t.bloqueado_hasta, t.ultimo_acceso = 0, None, ahora

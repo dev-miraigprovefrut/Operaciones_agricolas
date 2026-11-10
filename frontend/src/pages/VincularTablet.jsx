@@ -62,7 +62,7 @@ function VincularTablet() {
           </div>
         ) : (
           <>
-            <p style={s.ayuda}>Se elige una sola vez. Para cambiarla de tractor, se da de baja en Catálogos › Tractoristas › Tablets.</p>
+            <p style={s.ayuda}>Se elige una sola vez. Para cambiarla de tractor, se da de baja en Catálogos › Operadores › Tablets.</p>
             <input id="buscar-tractor" style={s.input} placeholder="Buscar tractor..." value={busqueda} onChange={e => setBusqueda(e.target.value)} />
             <div style={s.lista}>
               {cargando && !tractores.length && <p style={s.ayuda}>Cargando catálogo...</p>}

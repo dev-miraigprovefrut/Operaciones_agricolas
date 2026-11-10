@@ -144,7 +144,7 @@ def registrar(body: RegistrarIn, db: Session = Depends(get_db)):
         return {"tractor": ya["tractor"], "id": ya["id"]}
     if ya:
         raise HTTPException(409, f"El tractor {tractor} ya tiene una tablet registrada ({ya.get('descripcion')}). "
-                                 "Para cambiarla, désela de baja en Catálogos › Tractoristas › Tablets.")
+                                 "Para cambiarla, désela de baja en Catálogos › Operadores › Tablets.")
     ahora = ahora_ecuador().isoformat(timespec="seconds")
     for t in lista:                                     # esta tablet estaba en otro tractor
         if t.get("activo") and t.get("llave_hash") == llave:

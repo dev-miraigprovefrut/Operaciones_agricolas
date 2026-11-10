@@ -21,7 +21,7 @@ const MENU_PERMISOS = [
     hijos: [
       { key: 'catalogos_actividades', label: 'Actividades', icon: 'bx bx-task' },
       { key: 'catalogos_camiones', label: 'Camiones', icon: 'bx bxs-car' },
-      { key: 'catalogos_tractoristas', label: 'Tractoristas', icon: 'bx bx-hard-hat' },
+      { key: 'catalogos_tractoristas', label: 'Operadores', icon: 'bx bx-hard-hat' },
       { key: 'catalogos_supervisores', label: 'Supervisores', icon: 'bx bx-user-check' },
     ]
   },

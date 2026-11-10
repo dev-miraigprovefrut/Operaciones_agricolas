@@ -117,7 +117,7 @@ function Nav({ isOpen, onClose }) {
                   <ul className="nav-submenu-items">
                     {tienePermiso('catalogos_actividades') && <li><Link to="/catalogos/actividadtrac" className="nav-submenu-link" onClick={closeMenus}><i className='bx bx-task'></i> Actividades</Link></li>}
                     {tienePermiso('catalogos_camiones') && <li><Link to="/catalogos/camiones" className="nav-submenu-link" onClick={closeMenus}><i className='bx bxs-car'></i> Camiones</Link></li>}
-                    {tienePermiso('catalogos_tractoristas') && <li><Link to="/catalogos/tractoristas" className="nav-submenu-link" onClick={closeMenus}><i className='bx bx-hard-hat'></i> Tractoristas</Link></li>}
+                    {tienePermiso('catalogos_tractoristas') && <li><Link to="/catalogos/tractoristas" className="nav-submenu-link" onClick={closeMenus}><i className='bx bx-hard-hat'></i> Operadores</Link></li>}
                     {tienePermiso('catalogos_supervisores') && <li><Link to="/catalogos/supervisores" className="nav-submenu-link" onClick={closeMenus}><i className='bx bx-user-check'></i> Supervisores</Link></li>}
                     {tienePermiso('catalogos_supervisores') && <li><Link to="/catalogos/proyectos" className="nav-submenu-link" onClick={closeMenus}><i className='bx bx-map'></i> Proyectos</Link></li>}
                   </ul>
