@@ -538,6 +538,8 @@ def crear_registro(registro: RegistroIn, db: Session = Depends(get_db), user: Us
         estado=registro.estado, equipo=registro.equipo, cliente_id=registro.cliente_id,
         fecha_historial=historial, tiempo_paro=0.0, tiempo_real=0.0)
     db.add(nuevo)
+    if registro.estado == "Ejecutándose":
+        _pausar_otras(db, nuevo, ahora)
     if act:
         act.cantidad = (act.cantidad or 0) + 1
     try:
@@ -550,6 +552,31 @@ def crear_registro(registro: RegistroIn, db: Session = Depends(get_db), user: Us
         raise
     db.refresh(nuevo)
     return nuevo
+
+
+def _pausar_otras(db: Session, r: Registro, ahora: datetime) -> None:
+    """Un tractor (o dron) hace UNA actividad a la vez: al iniciar/reanudar `r`, la que seguia
+    Ejecutandose en el mismo equipo se pausa en ese mismo momento. No se rechaza nada (lo que llega
+    tarde de la cola sin internet no se pierde). Si la otra tiene un evento POSTERIOR a `ahora`
+    (llego desordenada), no se toca: no se puede pausar antes de su ultimo evento."""
+    filtro = [Registro.estado == "Ejecutándose", Registro.equipo == r.equipo]
+    if r.id is not None:
+        filtro.append(Registro.id != r.id)
+    if r.tractor:
+        filtro.append(Registro.tractor == r.tractor)
+    elif r.usuario:
+        filtro.append(Registro.usuario == r.usuario)
+    else:
+        return
+    for otra in db.scalars(select(Registro).where(*filtro)):
+        hist = list(otra.fecha_historial or [])
+        if hist and datetime.fromisoformat(hist[-1]["fecha"]) > ahora:
+            continue
+        hist.append({"accion": "pausado", "fecha": ahora.isoformat(), "ubicacion": None,
+                     "nota": "pausa automatica: se inicio otra actividad en el mismo equipo"})
+        otra.fecha_historial = hist
+        otra.estado = "Pausado"
+        flag_modified(otra, "fecha_historial")
 
 
 def _calcular_tiempos(historial: list[dict]) -> tuple[float, float]:
@@ -628,6 +655,7 @@ def _editar(db: Session, r: Registro, registro: RegistroUpdate, user: Usuario) -
                 r.tiempo_inicio = ahora
             else:
                 historial.append({"accion": "reanudado", "fecha": ahora.isoformat(), "ubicacion": ub})
+            _pausar_otras(db, r, ahora)
         elif registro.estado == "Finalizado":
             historial.append({"accion": "finalizado", "fecha": ahora.isoformat(), "ubicacion": ub})
             r.fecha_fin = ahora
