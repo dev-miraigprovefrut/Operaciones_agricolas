@@ -154,6 +154,12 @@ def telemetria(data: TelemetriaIn, request: Request, db: Session = Depends(get_d
                 "horometro": int(horas_reales) if horas_reales is not None else None}]})
         except HTTPException as e:
             resultado["gps_error"] = e.detail
+            logger.warning("GPS de %s no se publico en Mantenimiento: %s", tractor_id, e.detail)
+
+    # Solo ubicacion (motor apagado / tablet sin cargar): no se registran horas
+    if data.horas_delta <= 0:
+        resultado["message"] = "Ubicacion registrada" if "gps_error" not in resultado else "Ubicacion no publicada"
+        return resultado
 
     sesion = _sesiones_horometro.get(tractor_id)
     mismo_dia = sesion and sesion.get("hora_inicio", "")[:10] == ahora.date().isoformat()

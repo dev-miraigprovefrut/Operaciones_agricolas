@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
+import BotonModoColor from '../components/BotonModoColor'
 import './KioskoTablet.css'
 import { addToQueue, processQueue, getPendingCount, getPendingItems, fetchWithOffline, fetchConTimeout, cacheData, getCachedData } from '../services/syncQueue'
 import { nuevoClienteId, ahoraLocal, guardarLocal, mezclar, urlRegistro, accionDe, claveRegistro } from '../services/registrosLocales'
 import { llaveDispositivo, nombreDispositivo, guardarIngresoOffline, hayIngresoOffline, ingresarOffline, nombreGuardado } from '../services/dispositivo'
-import { tractorFijo, ubicacionTablet, guardarSesionTablet } from '../services/tablet'
+import { tractorFijo, ubicacionTablet, guardarSesionTablet, revisarActualizacion, VERSION_APP_NOMBRE } from '../services/tablet'
 import useOnlineStatus from '../services/useOnlineStatus'
 
 /**
@@ -147,32 +149,57 @@ function PantallaQuien({ onElegir, onOtro }) {
   )
 }
 
+/** Teclado de letras en pantalla (para el usuario nombre.apellido), grande para el dedo. */
+const FILAS_LETRAS = ['qwertyuiop', 'asdfghjklñ', 'zxcvbnm.']
+function TecladoLetras({ onLetra, onBorrar, onSiguiente }) {
+  return (
+    <div className="k-letras">
+      {FILAS_LETRAS.map(fila => (
+        <div key={fila} className="k-letras-fila">
+          {[...fila].map(l => <button key={l} className="k-tecla" onClick={() => onLetra(l)}>{l}</button>)}
+          {fila.startsWith('z') && <button className="k-tecla borrar ancha" onClick={onBorrar} aria-label="Borrar">⌫</button>}
+        </div>
+      ))}
+      <div className="k-letras-fila">
+        <button className="k-tecla ok ancha2" onClick={onSiguiente}>Siguiente: cédula</button>
+      </div>
+    </div>
+  )
+}
+
 /** Primera vez en esta tablet (o crear codigo nuevo): usuario nombre.apellido + cedula. */
 function PantallaCedula({ onListo, onVolver }) {
   const [username, setUsername] = useState('')
   const [cedula, setCedula] = useState('')
+  const [campo, setCampo] = useState('usuario')   // que teclado se muestra
   const [msg, setMsg] = useState('')
   const [ocupado, setOcupado] = useState(false)
   const continuar = async () => {
-    if (!username.trim()) return setMsg('Escriba su usuario (nombre.apellido)')
+    if (!username.trim()) { setCampo('usuario'); return setMsg('Escriba su usuario (nombre.apellido)') }
     if (cedula.length !== 10) return setMsg(cedula ? 'La cédula debe tener 10 dígitos' : 'Ingrese su cédula')
     setOcupado(true); setMsg('')
     try { onListo(await verificarCedula(cedula, username)) } catch (e) { setMsg(e.message) } finally { setOcupado(false) }
   }
   return (
-    <div className="k-centro">
+    <div className={`k-centro${campo === 'usuario' ? ' con-letras' : ''}`}>
       {onVolver ? <button className="k-lateral" onClick={onVolver}>Volver</button> : null}
       <div className="k-tarjeta">
         <div className="k-tarjeta-cab"><h1>Operaciones Agrícolas</h1><p>Acceso Tractoristas</p></div>
         <div className="k-tarjeta-cuerpo">
           <label className="k-etiqueta" htmlFor="kiosko-usuario">USUARIO</label>
-          <input id="kiosko-usuario" className="k-campo-num k-campo-texto" placeholder="nombre.apellido" autoCapitalize="none"
-            autoComplete="off" value={username} onChange={e => { setMsg(''); setUsername(e.target.value.toLowerCase().replace(/\s/g, '')) }} />
+          {/* inputMode none: escribe con el teclado de la pantalla (o uno fisico), sin el de Android encima */}
+          <input id="kiosko-usuario" className={`k-campo-num k-campo-texto${campo === 'usuario' ? ' activo' : ''}`}
+            placeholder="nombre.apellido" autoCapitalize="none" inputMode="none" autoComplete="off" value={username}
+            onFocus={() => setCampo('usuario')}
+            onChange={e => { setMsg(''); setUsername(e.target.value.toLowerCase().replace(/\s/g, '')) }} />
           <span className="k-etiqueta">CÉDULA</span>
-          <div className="k-campo-num" id="kiosko-cedula">{cedula}</div>
-          <Teclado ocupado={ocupado} onOk={continuar}
-            onDigito={n => { setMsg(''); setCedula(c => (c.length < 10 ? c + n : c)) }}
-            onBorrar={() => { setMsg(''); setCedula('') }} />
+          <div className={`k-campo-num${campo === 'cedula' ? ' activo' : ''}`} id="kiosko-cedula" onClick={() => setCampo('cedula')}>{cedula}</div>
+          {campo === 'usuario'
+            ? <TecladoLetras onLetra={l => { setMsg(''); setUsername(u => u + l) }}
+                onBorrar={() => { setMsg(''); setUsername(u => u.slice(0, -1)) }} onSiguiente={() => setCampo('cedula')} />
+            : <Teclado ocupado={ocupado} onOk={continuar}
+                onDigito={n => { setMsg(''); setCedula(c => (c.length < 10 ? c + n : c)) }}
+                onBorrar={() => { setMsg(''); setCedula(c => c.slice(0, -1)) }} />}
           <div className="k-msg">{msg}</div>
         </div>
       </div>
@@ -325,26 +352,88 @@ function Checklist({ onConfirmar }) {
   )
 }
 
-/** Campo con lista de sugerencias (botones grandes para el dedo) y ✕ para vaciarlo. */
+/** El teclado va debajo de la tabla de actividades (si existe el espacio); si no, fijo abajo. */
+const enSlot = nodo => { const slot = document.getElementById('k-teclado-slot'); return slot ? createPortal(nodo, slot) : nodo }
+
+/** Pasa al campo anterior/siguiente del formulario (flechas ◀ ▶ del teclado). */
+const saltarCampo = (desde, paso) => {
+  const campos = [...document.querySelectorAll('.k-form .k-campo input:not(:disabled)')]
+  const i = campos.indexOf(desde)
+  campos[i + paso]?.focus()
+}
+
+/** Teclado en pantalla del formulario: letras, numeros, flechas, borrar y OK. */
+const FILAS_FORM = ['1234567890', 'qwertyuiop', 'asdfghjklñ', 'zxcvbnm-.']
+export function TecladoFormulario({ onLetra, onBorrar, onOk, onArriba, onAbajo, onAnterior, onSiguiente }) {
+  // onPointerDown + preventDefault: el campo no pierde el foco al tocar una tecla
+  const t = (fn, cls, txt, k) => (
+    <button key={k || txt} className={`k-tecla ${cls || ''}`} onPointerDown={e => { e.preventDefault(); fn() }}>{txt}</button>
+  )
+  return (
+    <div className="k-letras">
+      {FILAS_FORM.map(fila => (
+        <div key={fila} className="k-letras-fila">
+          {[...fila].map(l => t(() => onLetra(l), '', l))}
+          {fila.startsWith('z') && t(onBorrar, 'borrar ancha', '⌫', 'borrar')}
+        </div>
+      ))}
+      <div className="k-letras-fila">
+        {t(onAnterior, 'ancha', '◀', 'ant')}
+        {t(onArriba, 'ancha', '▲', 'arr')}
+        {t(() => onLetra(' '), 'ancha2', 'espacio', 'esp')}
+        {t(onAbajo, 'ancha', '▼', 'aba')}
+        {t(onSiguiente, 'ancha', '▶', 'sig')}
+        {t(onOk, 'ok ancha', 'OK', 'ok')}
+      </div>
+    </div>
+  )
+}
+
+/** Campo con lista de sugerencias (botones grandes para el dedo), ✕ para vaciarlo y teclado en pantalla. */
 function CampoSugerencias({ id, valor, onCambiar, opciones, onElegir, deshabilitado, placeholder }) {
   const [abierto, setAbierto] = useState(false)
-  const ref = useRef(null)
+  const [marcada, setMarcada] = useState(0)
+  // El teclado queda visible con el ultimo campo tocado (no se cierra al tocar fuera)
+  const [activo, setActivo] = useState(false)
   useEffect(() => {
-    const fuera = e => { if (ref.current && !ref.current.contains(e.target)) setAbierto(false) }
+    const otro = e => setActivo(e.detail === id)
+    window.addEventListener('k-campo-activo', otro)
+    return () => window.removeEventListener('k-campo-activo', otro)
+  }, [id])
+  const ref = useRef(null)
+  const inputRef = useRef(null)
+  useEffect(() => {
+    const fuera = e => { if (ref.current && !ref.current.contains(e.target) && !e.target.closest?.('.k-letras')) setAbierto(false) }
     document.addEventListener('pointerdown', fuera)
     return () => document.removeEventListener('pointerdown', fuera)
   }, [])
+  useEffect(() => { setMarcada(0) }, [valor])
+  const lista = opciones.slice(0, 40)
+  useEffect(() => {
+    ref.current?.querySelector('.k-sugerencias .marcada')?.scrollIntoView({ block: 'nearest' })
+  }, [marcada])
+  const elegir = o => { onElegir(o); setAbierto(false); setTimeout(() => saltarCampo(inputRef.current, 1), 50) }
   return (
     <div className="k-campo" ref={ref}>
-      <input id={id} value={valor} disabled={deshabilitado} placeholder={placeholder} autoComplete="off"
-        onFocus={() => setAbierto(true)} onChange={e => { onCambiar(e.target.value); setAbierto(true) }} />
+      <input id={id} ref={inputRef} value={valor} disabled={deshabilitado} placeholder={placeholder} autoComplete="off"
+        inputMode="none" onFocus={() => { setAbierto(true); window.dispatchEvent(new CustomEvent('k-campo-activo', { detail: id })) }} onChange={e => { onCambiar(e.target.value); setAbierto(true) }} />
       {!deshabilitado && <button className="limpiar" onClick={() => { onCambiar(''); setAbierto(true) }} aria-label="Vaciar">✕</button>}
-      {abierto && !deshabilitado && opciones.length > 0 && (
+      {abierto && !deshabilitado && lista.length > 0 && (
         <div className="k-sugerencias">
-          {opciones.slice(0, 40).map((o, i) => (
-            <button key={`${o.texto}-${i}`} onClick={() => { onElegir(o); setAbierto(false) }}>{o.texto}</button>
+          {lista.map((o, i) => (
+            <button key={`${o.texto}-${i}`} className={i === marcada ? 'marcada' : ''} onClick={() => elegir(o)}>{o.texto}</button>
           ))}
         </div>
+      )}
+      {activo && !deshabilitado && enSlot(
+        <TecladoFormulario
+          onLetra={l => { onCambiar(valor + l); setAbierto(true) }}
+          onBorrar={() => { onCambiar(valor.slice(0, -1)); setAbierto(true) }}
+          onArriba={() => setMarcada(m => Math.max(0, m - 1))}
+          onAbajo={() => setMarcada(m => Math.min(lista.length - 1, m + 1))}
+          onAnterior={() => { setAbierto(true); saltarCampo(inputRef.current, -1) }}
+          onSiguiente={() => saltarCampo(inputRef.current, 1)}
+          onOk={() => { if (lista[marcada]) elegir(lista[marcada]); else { setAbierto(false); inputRef.current?.blur() } }} />
       )}
     </div>
   )
@@ -352,12 +441,21 @@ function CampoSugerencias({ id, valor, onCambiar, opciones, onElegir, deshabilit
 
 const FORM_VACIO = { actividad: '', subactividad: '', loteTexto: '', lote: null, apero: '' }
 
-function Trabajo({ usuario, tractor, onFinJornada, onBloquear }) {
+function Trabajo({ usuario, tractor, onFinJornada, tema }) {
   const nombre = usuario.nombre
   const { isOnline } = useOnlineStatus()
   const [pendientes, setPendientes] = useState(0)
   const [cargando, setCargando] = useState(true)
   const [checkHecho, setCheckHecho] = useState(false)
+  // Al llegar al formulario el teclado ya se ve (en el primer campo, sin abrir la lista)
+  useEffect(() => {
+    if (!checkHecho) return
+    const t = setTimeout(() => {
+      const primero = document.querySelector('.k-form .k-campo input:not(:disabled)')
+      if (primero) window.dispatchEvent(new CustomEvent('k-campo-activo', { detail: primero.id }))
+    }, 300)
+    return () => clearTimeout(t)
+  }, [checkHecho])
   const [idCheck, setIdCheck] = useState(null)
   const [registros, setRegistros] = useState([])
   const [catalogo, setCatalogo] = useState({ culturales: [], apoyos: [], aperos: [] })
@@ -472,12 +570,14 @@ function Trabajo({ usuario, tractor, onFinJornada, onBloquear }) {
     ? catalogo.apoyos.map(a => a.actividad)
     : (catalogo.culturales.find(a => a.actividad === form.actividad)?.subactividades || [])
   const textoApero = a => `${a.numeracion || ''} - ${a.tipo_implemento || ''}`
-  const textoLote = l => `${l.ocult_cod_ocult} / ${l.lote || ''} / ${l.hacienda || ''}`
+  const textoLote = l => (l.sinLote ? 'Lote 0 (sin lote)' : `${l.ocult_cod_ocult} / ${l.lote || ''} / ${l.hacienda || ''}`)
   const loteDe = r => ({ lote: r.lote, hacienda: r.hacienda, ocult_cod_ocult: r.orden_cultivo })
   const loteVisible = r => `${r.lote || ''} ${r.hacienda || ''}`.trim() || r.orden_cultivo || ''
 
   const buscarLotes = async (texto) => {
     setForm(f => ({ ...f, loteTexto: texto, lote: null }))
+    // Trabajo sin lote (patio, traslado...): se escribe 0 y se elige "Lote 0"
+    if (texto.trim() === '0') return setLotes([{ lote: '0', hacienda: '', ocult_cod_ocult: '0', sinLote: true }])
     if (texto.trim().length < 2) return setLotes([])
     try {
       const res = await fetchConTimeout(`${API_URL}/api/lotes-infx/buscar?ocult=${encodeURIComponent(texto.trim())}`, 5000)
@@ -581,7 +681,8 @@ function Trabajo({ usuario, tractor, onFinJornada, onBloquear }) {
           <i className={`bx ${isOnline ? 'bx-wifi' : 'bx-wifi-off'}`}></i>
           {isOnline ? 'En línea' : 'Sin conexión'}{pendientes > 0 ? ` · ${pendientes} por enviar` : ''}
         </div>
-        <button className="k-btn-cab" onClick={onBloquear}><i className="bx bx-lock-alt"></i> Bloquear</button>
+        <button className="k-btn-cab" onClick={tema.onCambiar} aria-label="Modo claro u oscuro">
+          <i className={`bx ${tema.darkMode ? 'bx-moon' : 'bx-sun'}`}></i> {tema.darkMode ? 'Oscuro' : 'Claro'}</button>
       </header>
 
       <div className="k-cuerpo">
@@ -590,7 +691,16 @@ function Trabajo({ usuario, tractor, onFinJornada, onBloquear }) {
             : (
               <>
                 <section className="k-izq">
-                  <h3>Actividades de hoy</h3>
+                  <div className="k-pie-izq k-barra-izq">
+                    <h3>Actividades de hoy</h3>
+                                        <span className="espacio"></span>
+                    {vista?.estado === 'Pendiente' && <button className="k-btn-chico eliminar" disabled={ocupado} onClick={() => eliminar(vista)}>🗑 Eliminar</button>}
+                    <button className="k-btn-chico" disabled={ocupado} onClick={enVista ? agregarNuevo : () => crear('Pendiente')}>
+                      {enVista ? 'Agregar nuevo' : '＋ Agregar actividad'}
+                    </button>
+                    <button className="k-btn-chico jornada" disabled={ocupado || registros.length > 0} onClick={finalizarJornada}
+                      title={registros.length ? 'Finalice todas las actividades primero' : ''}>Finalizar jornada</button>
+                  </div>
                   <div className="k-tabla-cont">
                     <table className="k-tabla">
                       <thead><tr><th className="centro">Creada / Inicio</th><th>Actividad</th><th>Subactividad</th><th className="centro">Tiempo</th></tr></thead>
@@ -613,16 +723,9 @@ function Trabajo({ usuario, tractor, onFinJornada, onBloquear }) {
                       </tbody>
                     </table>
                   </div>
-                  <div className="k-pie-izq">
-                    <span>Toque una fila para verla. Doble toque en una "Pendiente" para iniciarla.</span>
-                    <span className="espacio"></span>
-                    {vista?.estado === 'Pendiente' && <button className="k-btn-chico eliminar" disabled={ocupado} onClick={() => eliminar(vista)}>🗑 Eliminar</button>}
-                    <button className="k-btn-chico" disabled={ocupado} onClick={enVista ? agregarNuevo : () => crear('Pendiente')}>
-                      {enVista ? 'Agregar nuevo' : '＋ Agregar actividad'}
-                    </button>
-                    <button className="k-btn-chico jornada" disabled={ocupado || registros.length > 0} onClick={finalizarJornada}
-                      title={registros.length ? 'Finalice todas las actividades primero' : ''}>Finalizar jornada</button>
-                  </div>
+                  <p className="k-ayuda-tabla">Toque una fila para verla. Doble toque en una "Pendiente" para iniciarla.</p>
+                  {/* aqui se dibuja el teclado de los campos del formulario */}
+                  <div id="k-teclado-slot" className="k-teclado-slot"></div>
                 </section>
 
                 <section className="k-form">
@@ -675,11 +778,19 @@ function Trabajo({ usuario, tractor, onFinJornada, onBloquear }) {
 }
 
 // ======================================================================
-function KioskoTablet() {
+function KioskoTablet({ tema }) {
   const tractor = tractorFijo()
   const [usuario, setUsuario] = useState(null)
   // quien (lista de los que ya entraron) | cedula (usuario + cedula) | codigo | trabajo
   const [pantalla, setPantalla] = useState(conocidos().length ? 'quien' : 'cedula')
+  // Version nueva del APK: se revisa al abrir y cada 6 horas (con señal)
+  const [nueva, setNueva] = useState(null)
+  useEffect(() => {
+    const revisar = () => revisarActualizacion().then(setNueva)
+    revisar()
+    const t = setInterval(revisar, 6 * 3600000)
+    return () => clearInterval(t)
+  }, [])
 
   // Lo guardado sin internet se envia en CUALQUIER pantalla: si apagaron la
   // tablet en el campo, sube al prenderla en el patio (con señal).
@@ -709,11 +820,19 @@ function KioskoTablet() {
 
   return (
     <div className="kiosko">
+      {nueva && pantalla !== 'trabajo' && (
+        <div className="k-actualizar">
+          <span><i className="bx bx-download"></i> Hay una versión nueva de la app ({nueva.version_name}). Usted tiene la {VERSION_APP_NOMBRE}.</span>
+          {/* El enlace abre el navegador de la tablet, que descarga el APK; luego se toca "Instalar" */}
+          <button className="k-btn" onClick={() => { window.location.href = nueva.url }}>Actualizar</button>
+        </div>
+      )}
       {pantalla === 'quien' && <PantallaQuien onElegir={elegir} onOtro={() => setPantalla('cedula')} />}
       {pantalla === 'cedula' && <PantallaCedula onListo={u => { setUsuario(u); setPantalla('codigo') }}
         onVolver={conocidos().length ? () => setPantalla('quien') : null} />}
       {pantalla === 'codigo' && usuario && <PantallaCodigo usuario={usuario} onEntrar={u => { setUsuario(u); setPantalla('trabajo') }} onCambiarUsuario={salir} />}
-      {pantalla === 'trabajo' && usuario && <Trabajo usuario={usuario} tractor={tractor} onFinJornada={salir} onBloquear={salir} />}
+      {pantalla === 'trabajo' && usuario && <Trabajo usuario={usuario} tractor={tractor} onFinJornada={salir} tema={tema} />}
+      {pantalla !== 'trabajo' && <BotonModoColor {...tema} />}
       {pantalla !== 'trabajo' && <img className="k-logo-pie" src="/LogoNintanga.png" alt="" onError={e => { e.target.style.display = 'none' }} />}
     </div>
   )

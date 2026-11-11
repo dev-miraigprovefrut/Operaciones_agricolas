@@ -56,15 +56,15 @@ export async function tractoresCatalogo() {
   return (await res.json()).map(t => t.nombre || `${t.marca} ${t.modelo} - ${t.numeracion}`).filter(Boolean).sort()
 }
 
-export async function vincularTablet(tractor) {
+export async function vincularTablet(tractor, horometro) {
   const res = await fetch(`${API_URL}/api/tablets/registrar`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ tractor, llave: llaveDispositivo(), descripcion: nombreDispositivo() })
+    body: JSON.stringify({ tractor, llave: llaveDispositivo(), descripcion: nombreDispositivo(), horometro })
   })
   const d = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(d.detail || 'No se pudo vincular la tablet')
   localStorage.setItem(CLAVE_TABLET, JSON.stringify({ tractor: d.tractor, id: d.id }))
-  return d.tractor
+  return d
 }
 
 // ------------------------------------------------------------- telemetria
@@ -78,31 +78,50 @@ const ahoraLocal = () => {
 // GPS de la TABLET: se sigue la posicion todo el tiempo y se guarda la ultima
 // (la usan la telemetria y los registros de actividades).
 let ultimaPos = null
+// Sin Servicios de Google Play el plugin falla (y Android muestra un aviso cada vez):
+// tras el primer fallo se usa SOLO el GPS del navegador (WebView), que no los necesita.
+let usarNavegador = localStorage.getItem('oa_gps_navegador') === '1'
+const guardarPos = p => { if (p?.coords) ultimaPos = { lat: p.coords.latitude, lon: p.coords.longitude, t: Date.now() } }
+const pasarANavegador = () => { usarNavegador = true; localStorage.setItem('oa_gps_navegador', '1') }
+
+function seguirConNavegador() {
+  navigator.geolocation?.watchPosition(guardarPos, () => {}, { enableHighAccuracy: true, maximumAge: 10000 })
+}
+
 async function seguirGps() {
   const geo = plugin('Geolocation')
-  if (!geo) return
+  if (usarNavegador || !geo) return seguirConNavegador()
   try {
-    await geo.watchPosition({ enableHighAccuracy: true, timeout: 30000, maximumAge: 10000 }, (p) => {
-      if (p?.coords) ultimaPos = { lat: p.coords.latitude, lon: p.coords.longitude, t: Date.now() }
+    await geo.watchPosition({ enableHighAccuracy: true, timeout: 30000, maximumAge: 10000 }, (p, err) => {
+      if (err) { pasarANavegador(); seguirConNavegador(); return }
+      guardarPos(p)
     })
-  } catch { /* sin permiso: queda sin ubicacion */ }
+  } catch { pasarANavegador(); seguirConNavegador() }
 }
 
-async function posicion() {
+const navegadorUnaVez = ms => new Promise(ok => navigator.geolocation
+  ? navigator.geolocation.getCurrentPosition(ok, () => ok(null), { enableHighAccuracy: true, timeout: ms, maximumAge: 60000 })
+  : ok(null))
+
+/** Ultima ubicacion; si no hay una reciente se intenta como mucho `ms` (no frena al usuario). */
+async function posicion(ms = 15000) {
   if (ultimaPos && Date.now() - ultimaPos.t < 2 * INTERVALO_MS) return ultimaPos
   const geo = plugin('Geolocation')
-  if (!geo) return null
-  try {
-    const p = await geo.getCurrentPosition({ enableHighAccuracy: true, timeout: 20000, maximumAge: 30000 })
-    ultimaPos = { lat: p.coords.latitude, lon: p.coords.longitude, t: Date.now() }
-    return ultimaPos
-  } catch { return ultimaPos }
+  if (!usarNavegador && geo) {
+    try {
+      guardarPos(await geo.getCurrentPosition({ enableHighAccuracy: true, timeout: ms, maximumAge: 60000 }))
+      return ultimaPos
+    } catch { pasarANavegador() }
+  }
+  guardarPos(await navegadorUnaVez(ms))
+  return ultimaPos
 }
 
-/** Ubicacion de la tablet "lat,lon" para los registros (null si no es el APK o no hay GPS). */
+/** Ubicacion de la tablet "lat,lon" para los registros (null si no es el APK o no hay GPS).
+ * Iniciar / pausar / finalizar no esperan al GPS: usan la ultima posicion (o 3 s como mucho). */
 export async function ubicacionTablet() {
   if (!esApp() || !tabletVinculada()) return null
-  const p = await posicion()
+  const p = ultimaPos || await posicion(3000)
   return p ? `${p.lat.toFixed(6)},${p.lon.toFixed(6)}` : null
 }
 
@@ -134,6 +153,7 @@ async function registrarHoras(ahora) {
  * con el evento de carga del navegador.
  */
 let revisando = false
+let ultimaUbicacion = 0
 async function revisarCarga() {
   if (revisando) return
   revisando = true
@@ -149,6 +169,15 @@ async function revisarCarga() {
     } else if (!cargando && contando) {                // se desconecto: cierra el tramo
       await registrarHoras(ahora)
       localStorage.removeItem(CLAVE_CONTANDO)
+    } else if (!cargando && ahora - ultimaUbicacion >= INTERVALO_MS) {
+      // Sin cargar (motor apagado o tablet sin cable): igual se publica DONDE esta el tractor
+      ultimaUbicacion = ahora
+      const pos = await posicion()
+      if (pos) {
+        const cola = leerCola()
+        cola.push({ horas_delta: 0, lat: pos.lat, lon: pos.lon, fecha: ahoraLocal(), operador: localStorage.getItem('usuario_nombre') || null })
+        guardarCola(cola)
+      }
     }
   } finally { revisando = false }
 }
@@ -170,6 +199,9 @@ async function enviarCola() {
       } catch { break }                                 // sin red: se reintenta despues
       if (res.status === 401) {                         // tablet dada de baja
         localStorage.removeItem(CLAVE_TABLET)
+        // Dada de baja en Catalogos: vuelve a elegir tractor (si no, sigue mostrando el viejo
+        // y los tractoristas entran como si fuera su telefono)
+        window.location.href = '/vincular-tablet'
         break
       }
       if (!res.ok && res.status < 500) console.warn('telemetria descartada', res.status)
@@ -185,8 +217,19 @@ let iniciada = false
 export async function iniciarModoTablet() {
   if (iniciada || !esApp() || !tabletVinculada()) return
   iniciada = true
+  // Con señal se confirma al abrir que la tablet sigue vinculada (pudo darse de baja en Catalogos)
+  if (navigator.onLine) {
+    fetch(`${API_URL}/api/tablets/yo`, { headers: cabeceraEquipo() }).then(r => {
+      if (r.status === 401 || r.status === 403 || r.status === 404) {
+        localStorage.removeItem(CLAVE_TABLET)
+        window.location.href = '/vincular-tablet'
+      }
+    }).catch(() => { /* sin red: sigue con el tractor guardado */ })
+  }
   try { await plugin('KeepAwake')?.keepAwake() } catch { /* sin plugin */ }
-  try { await plugin('Geolocation')?.requestPermissions() } catch { /* el usuario puede negarlo */ }
+  if (!usarNavegador) {
+    try { await plugin('Geolocation')?.requestPermissions() } catch { pasarANavegador() }
+  }
   seguirGps()
   // Al abrir la app no se cuentan horas de cuando estuvo cerrada
   localStorage.removeItem(CLAVE_CONTANDO)
@@ -203,3 +246,19 @@ export async function iniciarModoTablet() {
 
 /** Para la pantalla de estado: reportes pendientes de enviar. */
 export const telemetriaPendiente = () => leerCola().length
+
+// ------------------------------------------------------------ actualizacion
+/** Version de ESTE APK (la pone publicar.ps1 al compilar; 0 = compilado a mano / web). */
+export const VERSION_APP = Number(import.meta.env.VITE_APK_VERSION_CODE || 0)
+export const VERSION_APP_NOMBRE = import.meta.env.VITE_APK_VERSION_NAME || 'desarrollo'
+
+/** Si hay un APK mas nuevo publicado devuelve {version_name, notas, url}; si no, null. */
+export async function revisarActualizacion() {
+  if (!esApp() || !navigator.onLine) return null
+  try {
+    const r = await fetch(`${API_URL}/api/app-tablet/version`)
+    if (!r.ok) return null
+    const v = await r.json()
+    return Number(v.version_code) > VERSION_APP ? v : null
+  } catch { return null }
+}

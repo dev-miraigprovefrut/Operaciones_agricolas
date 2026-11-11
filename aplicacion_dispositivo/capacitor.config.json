@@ -1,0 +1,15 @@
+{
+  "appId": "com.provefrut.operacionesagricolas.tractor",
+  "appName": "Tractor Nintanga",
+  "webDir": "www",
+  "server": {
+    "hostname": "tractoristas.miraigprovefrut.com",
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": false
+  },
+  "plugins": {
+    "CapacitorCookies": { "enabled": true }
+  }
+}

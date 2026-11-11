@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Tractor Nintanga</string>
+    <string name="title_activity_main">Tractor Nintanga</string>
+    <string name="package_name">com.provefrut.operacionesagricolas.tractor</string>
+    <string name="custom_url_scheme">com.provefrut.operacionesagricolas.tractor</string>
+</resources>

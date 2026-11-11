@@ -1,0 +1,11 @@
+node_modules/
+android/app/build/
+android/.gradle/
+android/build/
+android/local.properties
+*.apk
+www/
+android/app/src/main/assets/public/
+TractorNintanga-*.apk
+*.jks
+*.keystore

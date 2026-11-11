@@ -272,7 +272,7 @@ function App() {
         {/* Login tractorista - página independiente sin header/nav */}
         <Route path="/login-tractorista" element={<LoginTractorista />} />
         <Route path="/vincular-tablet" element={<VincularTablet />} />
-        <Route path="/kiosko" element={<KioskoTablet />} />
+        <Route path="/kiosko" element={<KioskoTablet tema={{ modo, darkMode, onCambiar: siguienteModo }} />} />
 
         {/* Tractorista: solo acceso a registrar actividades */}
         {esTractorista ? (

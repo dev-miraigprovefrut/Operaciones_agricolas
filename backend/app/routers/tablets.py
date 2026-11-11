@@ -120,10 +120,29 @@ def baja(id_tablet: int, db: Session = Depends(get_db), user: Usuario = Depends(
 
 
 # --------------------------------------------------------------- tablet
+def _fijar_horometro(tractor: str, horometro: float | None) -> dict:
+    """Deja el horometro del equipo en Mantenimiento (y Activos) con lo que marca el
+    tablero; la telemetria de la tablet suma desde ese valor. No frena el registro."""
+    if horometro is None:
+        return {}
+    from . import tractores as tr
+    tractor_id = tr._id_mantenimiento(tractor)
+    try:
+        tr._mant("POST", "/equipo-horas/registrar-actividad",
+                 {"tractor_id": tractor_id, "operador": "Ajuste al montar tablet", "horometro_inicial": round(horometro, 2)})
+        tr._sesiones_horometro.pop(tractor_id, None)    # la proxima jornada parte del valor nuevo
+        return {"horometro": round(horometro, 2)}
+    except Exception as e:  # noqa: BLE001
+        tr.logger.warning("No se pudo fijar el horometro de %s: %s", tractor_id, e)
+        return {"horometro_error": "La tablet quedó registrada, pero no se pudo guardar el horómetro. Ingréselo en Mantenimiento."}
+
+
 class RegistrarIn(BaseModel):
     tractor: str = Field(min_length=3, max_length=150)
     llave: str = Field(min_length=32, max_length=200)
     descripcion: str | None = Field(None, max_length=200)
+    # Horas que marca el horometro del equipo al montar la tablet: desde ahi se van sumando
+    horometro: float | None = Field(None, ge=0, le=200000)
 
 
 @router.post("/registrar")
@@ -141,7 +160,7 @@ def registrar(body: RegistrarIn, db: Session = Depends(get_db)):
     p, lista = _lista(db, para_escribir=True)
     ya = next((t for t in lista if t.get("activo") and t.get("tractor") == tractor), None)
     if ya and ya.get("llave_hash") == llave:            # reintento de la misma tablet
-        return {"tractor": ya["tractor"], "id": ya["id"]}
+        return {"tractor": ya["tractor"], "id": ya["id"], **_fijar_horometro(tractor, body.horometro)}
     if ya:
         raise HTTPException(409, f"El tractor {tractor} ya tiene una tablet registrada ({ya.get('descripcion')}). "
                                  "Para cambiarla, désela de baja en Catálogos › Operadores › Tablets.")
@@ -153,7 +172,7 @@ def registrar(body: RegistrarIn, db: Session = Depends(get_db)):
              "descripcion": (body.descripcion or "Tablet")[:200], "activo": True, "fecha_alta": ahora, "ultimo_uso": ahora}
     lista.append(nuevo)
     _guardar(db, p, lista, "tablet")
-    return {"tractor": tractor, "id": nuevo["id"]}
+    return {"tractor": tractor, "id": nuevo["id"], **_fijar_horometro(tractor, body.horometro)}
 
 
 @router.get("/yo")

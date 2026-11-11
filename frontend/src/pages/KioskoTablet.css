@@ -1,6 +1,6 @@
 /* Tablet del tractor (APK): misma interfaz que el kiosko de la Raspberry
    (kiosk_app.py): fondo claro, morado Nintanga, teclados grandes para el dedo.
-   Paleta fija (clara) igual a la Raspberry, sin modo oscuro: la cabina es de dia. */
+   Claro por defecto (como la Raspberry); con la luna (html.dark) pasa a oscuro. */
 .kiosko {
   --morado: #7b1fa2;
   --morado-oscuro: #5d1680;
@@ -122,10 +122,114 @@
 .k-sugerencias { position: absolute; z-index: 5; left: 0; right: 0; top: 100%; background: var(--blanco); border: 1px solid var(--morado);
   max-height: 290px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; padding: 4px; box-shadow: 0 6px 16px rgba(0,0,0,.12); }
 .k-sugerencias button { background: var(--tecla); color: var(--texto); text-align: left; font-size: 1.05rem; padding: 12px 10px; }
+.k-sugerencias button.marcada { background: var(--tecla-activa); box-shadow: inset 4px 0 0 var(--morado); }
 .k-sugerencias button:active { background: var(--morado); color: #fff; }
 .k-form-msg { min-height: 1.2em; font-size: .9rem; font-weight: 700; color: var(--rojo); }
 .k-botonera { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
 .k-botonera .k-btn { width: 100%; }
+
+/* teclado de letras (usuario): fijo abajo, a lo ancho, como el teclado del telefono */
+.k-letras { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9500; display: flex; flex-direction: column; gap: 8px;
+  align-items: stretch; padding: 10px 10px calc(10px + env(safe-area-inset-bottom, 0px));
+  background: var(--fondo); border-top: 1px solid var(--borde); box-shadow: 0 -4px 14px rgba(0,0,0,.08); }
+.k-letras-fila { display: flex; gap: 6px; justify-content: center; }
+.k-letras .k-tecla { flex: 1; max-width: 90px; height: 52px; font-size: 1.4rem; padding: 0; }
+.k-letras .k-tecla.ancha { max-width: 130px; flex: 1.5; }
+.k-letras .k-tecla.ancha2 { max-width: 420px; flex: 6; font-size: 1.1rem; }
+.k-centro.con-letras { padding-bottom: 260px; align-items: flex-start; }
+.k-campo-num.activo { border-color: var(--morado); box-shadow: 0 0 0 2px var(--morado); }
+/* espacio para el boton flotante de claro/oscuro */
+
+/* ---------- estilo moderno (capa encima del estilo Raspberry) ---------- */
+.kiosko {
+  --radio: 14px; --radio-chico: 10px;
+  --sombra: 0 6px 24px rgba(60, 20, 80, .10), 0 1px 3px rgba(60, 20, 80, .08);
+  --degradado: linear-gradient(135deg, #712d7d 0%, #9c27b0 55%, #ea64a5 100%);
+  font-family: 'Inter', 'Segoe UI', Roboto, system-ui, sans-serif;
+  background: radial-gradient(circle at 15% 0%, #efe3f4 0%, transparent 45%), var(--fondo);
+}
+.kiosko button { border-radius: var(--radio-chico); transition: transform .08s ease, background .15s ease, box-shadow .15s ease; }
+.kiosko button:active:not(:disabled) { transform: scale(.97); }
+
+.k-tarjeta { border-radius: 20px; overflow: hidden; box-shadow: var(--sombra); border: 1px solid var(--borde); }
+.k-tarjeta-cab { background: var(--degradado); padding: 24px 40px 20px; }
+.k-tarjeta-cab h1 { font-weight: 700; letter-spacing: .01em; }
+.k-campo-num { border-radius: var(--radio-chico); border: 1.5px solid var(--borde); background: var(--blanco); color: var(--texto); }
+.k-campo-num.activo { border-color: var(--morado); box-shadow: 0 0 0 4px rgba(156, 39, 176, .15); }
+.k-punto { border-radius: var(--radio-chico); border: 1.5px solid var(--borde); }
+.k-punto.lleno { border-color: var(--morado); }
+.k-tecla { font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+.k-tecla.ok, .k-btn, .k-letras .k-tecla.ok { background: var(--degradado); box-shadow: 0 4px 14px rgba(156, 39, 176, .3); }
+.k-quien-nombre { border-radius: var(--radio); }
+.k-quien-nombre .inicial { border-radius: 12px; background: var(--degradado); }
+.k-lateral { border-radius: var(--radio); }
+.k-aviso { border-radius: var(--radio-chico); }
+.k-letras { border-top-left-radius: 18px; border-top-right-radius: 18px; backdrop-filter: blur(8px); }
+
+.k-cabecera { background: var(--degradado); box-shadow: 0 4px 16px rgba(113, 45, 125, .25); padding-left: 20px; padding-right: 20px; }
+.k-cabecera .tractor { letter-spacing: .01em; }
+.k-estado-red, .k-btn-cab { border-radius: 999px; backdrop-filter: blur(4px); }
+.k-cuerpo { gap: 18px; padding: 18px 20px 20px; }
+.k-fila-titulo h2, .k-izq h3, .k-form h3 { font-weight: 700; letter-spacing: -.01em; }
+
+.k-tabla-cont { border-radius: var(--radio); box-shadow: var(--sombra); border: 1px solid var(--borde); }
+.k-tabla th { background: var(--blanco); color: var(--gris); font-size: .8rem; text-transform: uppercase; letter-spacing: .05em;
+  border-bottom: 2px solid var(--borde); }
+.k-tabla td { border-bottom: 1px solid var(--borde); }
+.k-tabla tr.sel td { box-shadow: inset 4px 0 0 var(--morado); background: var(--tecla); }
+
+.k-form { border: 1px solid var(--borde); border-radius: var(--radio); box-shadow: var(--sombra); padding: 18px; }
+.k-form label { text-transform: uppercase; }
+.k-campo input { border-radius: var(--radio-chico); border: 1.5px solid var(--borde); background: var(--blanco); color: var(--texto); }
+.k-campo input:focus { outline: none; border-color: var(--morado); box-shadow: 0 0 0 4px rgba(156, 39, 176, .15); }
+.k-campo input:disabled { border-style: dashed; }
+.k-campo .limpiar { border-radius: var(--radio-chico); }
+.k-sugerencias { border-radius: var(--radio); border: 1px solid var(--borde); box-shadow: 0 12px 32px rgba(0,0,0,.16); }
+.k-sugerencias button { border-radius: var(--radio-chico); }
+.k-check-item { border-radius: var(--radio-chico); }
+.k-caja { border-radius: 7px; }
+.k-btn-chico { border-radius: var(--radio-chico); }
+.k-btn-chico.jornada { background: var(--morado-oscuro); }
+
+/* pantalla de trabajo: botones arriba, tabla de ~3 filas y teclado debajo */
+.k-barra-izq { font-size: 1rem; }
+.k-barra-izq h3 { margin: 0; }
+.k-izq .k-tabla-cont { flex: none; max-height: 210px; }
+.k-ayuda-tabla { margin: 0; font-size: .8rem; color: var(--gris); }
+.k-teclado-slot { flex: 1; min-height: 0; display: flex; align-items: flex-end; }
+.k-teclado-slot .k-letras { position: static; width: 100%; border: 1px solid var(--borde); border-radius: var(--radio, 14px);
+  box-shadow: var(--sombra); background: var(--blanco); }
+
+/* variables para usar el teclado fuera del kiosko (vincular tablet) */
+.k-vars { --morado: #7b1fa2; --morado-oscuro: #5d1680; --fondo: #f5f5f7; --blanco: #ffffff; --texto: #333333; --gris: #666666;
+  --borde: #dddddd; --tecla: #f5f2f8; --tecla-activa: #e8d9f2; --rojo: #c0392b;
+  --degradado: linear-gradient(135deg, #712d7d 0%, #9c27b0 55%, #ea64a5 100%); font-family: 'Inter', 'Segoe UI', Roboto, system-ui, sans-serif; }
+.k-vars button { font-family: inherit; cursor: pointer; border: 0; border-radius: 10px; touch-action: manipulation; }
+.k-vars .k-tecla { background: var(--tecla); color: var(--texto); font-weight: 500; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+.k-vars .k-tecla.ok { background: var(--degradado); color: #fff; font-weight: 700; }
+.k-vars .k-tecla.borrar { color: var(--rojo); }
+html.dark .k-vars { --fondo: #12121f; --blanco: #1c1c2e; --texto: #ececf2; --borde: #3a3650; --tecla: #262438; --tecla-activa: #3a2f52; }
+
+/* aviso de version nueva del APK */
+.k-actualizar { position: fixed; top: 12px; left: 50%; transform: translateX(-50%); z-index: 9600; display: flex; align-items: center; gap: 14px;
+  background: var(--blanco); color: var(--texto); border: 1px solid var(--borde); border-radius: 14px; padding: 10px 12px 10px 16px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.18); max-width: calc(100% - 24px); }
+.k-actualizar .k-btn { padding: 10px 18px; font-size: 1rem; }
+
+/* ---------- modo oscuro ---------- */
+html.dark .kiosko {
+  background: radial-gradient(circle at 15% 0%, #2a1840 0%, transparent 45%), var(--fondo);
+  --morado: #b45ad0; --morado-oscuro: #8e3aa8; --fondo: #12121f; --blanco: #1c1c2e; --texto: #ececf2;
+  --gris: #a9a3b5; --borde: #3a3650; --tecla: #262438; --tecla-activa: #3a2f52;
+}
+html.dark .kiosko .k-tarjeta { box-shadow: 6px 6px 0 #2a2340; }
+html.dark .kiosko .k-check-item:nth-child(4n+3), html.dark .kiosko .k-check-item:nth-child(4n+4) { background: #20203a; }
+html.dark .kiosko .k-tabla td { border-bottom-color: #2c2a40; }
+html.dark .kiosko .k-campo input, html.dark .kiosko .k-campo-num { background: var(--blanco); color: var(--texto); }
+html.dark .kiosko .k-campo input:disabled { background: #22223a; }
+html.dark .kiosko .k-punto.lleno { background: #2e2445; }
+html.dark .kiosko .k-tabla tr.Ejecutándose { background: #1f4a2b; }
+html.dark .kiosko .k-tabla tr.Pausado, html.dark .kiosko .k-aviso { background: #4a3d12; color: #ffe08a; }
 
 @media (max-width: 800px) {
   .k-cuerpo { flex-direction: column; overflow-y: auto; }

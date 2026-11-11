@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react'
 import { useEmpresas } from '../services/useEmpresas'
 import { logoUrl } from '../services/empresasService'
 import { esDominioDron, rutaBitacora } from '../services/sesion'
+import { useOscuro, paletaCampo } from '../services/useOscuro'
 import { llaveDispositivo, nombreDispositivo, guardarIngresoOffline, hayIngresoOffline, ingresarOffline, nombreGuardado } from '../services/dispositivo'
 
 // fetch lanza TypeError cuando no hay red (o AbortError si la señal no da datos)
@@ -36,6 +37,7 @@ function LoginTractorista() {
   const [exito, setExito] = useState('')
   const [showCedula, setShowCedula] = useState(false)
   const autoVerificado = useRef(false)
+  const oscuro = useOscuro()
 
   // Auto-verificar si ya tiene datos guardados (webapp/PWA)
   useEffect(() => {
@@ -245,11 +247,12 @@ function LoginTractorista() {
     }
   }
 
-  // Estilos
+  // Estilos: siguen el modo claro/oscuro (clase 'dark' en <html>)
+  const c = paletaCampo(oscuro)
   const styles = {
     page: {
       minHeight: '100vh',
-      background: 'linear-gradient(160deg, #0d0d1a 0%, #1a1035 40%, #2d1b4e 70%, #1a1035 100%)',
+      background: c.fondo,
       display: 'flex',
       flexDirection: 'column',
       alignItems: 'center',
@@ -263,7 +266,7 @@ function LoginTractorista() {
       borderRadius: '20px',
       overflow: 'hidden',
       boxShadow: '0 25px 80px rgba(113, 45, 125, 0.25), 0 8px 32px rgba(0,0,0,0.4)',
-      border: '1px solid rgba(255,255,255,0.06)'
+      border: `1px solid ${c.borde}`
     },
     headerSection: {
       background: 'linear-gradient(135deg, #712d7d 0%, #9c27b0 50%, #ea64a5 100%)',
@@ -279,7 +282,7 @@ function LoginTractorista() {
       pointerEvents: 'none'
     },
     body: {
-      background: '#15152a',
+      background: c.tarjeta,
       padding: '1.75rem 1.5rem 1.5rem'
     },
     inputGroup: {
@@ -287,7 +290,7 @@ function LoginTractorista() {
     },
     label: {
       fontSize: '0.8rem',
-      color: 'rgba(255,255,255,0.5)',
+      color: c.etiqueta,
       marginBottom: '0.4rem',
       display: 'block',
       fontWeight: 500,
@@ -301,9 +304,9 @@ function LoginTractorista() {
       width: '100%',
       padding: '0.85rem 0.85rem 0.85rem 2.75rem',
       borderRadius: '12px',
-      border: '1.5px solid rgba(255,255,255,0.08)',
-      background: 'rgba(255,255,255,0.04)',
-      color: '#fff',
+      border: `1.5px solid ${c.borde}`,
+      background: c.campo,
+      color: c.texto,
       fontSize: '0.95rem',
       outline: 'none',
       boxSizing: 'border-box',
@@ -312,7 +315,7 @@ function LoginTractorista() {
     },
     inputIcon: {
       position: 'absolute', left: '0.9rem', top: '50%',
-      transform: 'translateY(-50%)', color: 'rgba(255,255,255,0.3)', fontSize: '1.15rem'
+      transform: 'translateY(-50%)', color: c.suave, fontSize: '1.15rem'
     },
     btnPrimary: (disabled) => ({
       width: '100%',
@@ -377,14 +380,14 @@ function LoginTractorista() {
       gap: '0.35rem'
     },
     userCard: {
-      background: 'rgba(255,255,255,0.04)',
+      background: c.campo,
       borderRadius: '14px',
       padding: '0.85rem',
       marginBottom: '1.25rem',
       display: 'flex',
       alignItems: 'center',
       gap: '0.85rem',
-      border: '1px solid rgba(255,255,255,0.06)'
+      border: `1px solid ${c.borde}`
     },
     avatar: {
       width: '44px', height: '44px', borderRadius: '12px',
@@ -395,8 +398,8 @@ function LoginTractorista() {
     },
     pinDot: (active) => ({
       width: '44px', height: '44px', borderRadius: '12px',
-      border: `2px solid ${active ? '#9c27b0' : 'rgba(255,255,255,0.08)'}`,
-      background: active ? 'rgba(156,39,176,0.15)' : 'rgba(255,255,255,0.02)',
+      border: `2px solid ${active ? '#9c27b0' : c.borde}`,
+      background: active ? 'rgba(156,39,176,0.15)' : c.campo,
       display: 'flex', alignItems: 'center', justifyContent: 'center',
       fontSize: '1.6rem', fontWeight: 700, color: '#c66ba9',
       transition: 'all 0.2s ease',
@@ -406,10 +409,10 @@ function LoginTractorista() {
       padding: '0.85rem',
       fontSize: '1.35rem',
       fontWeight: 600,
-      border: '1px solid rgba(255,255,255,0.06)',
+      border: `1px solid ${c.borde}`,
       borderRadius: '12px',
-      background: 'rgba(255,255,255,0.03)',
-      color: '#fff',
+      background: c.campo,
+      color: c.texto,
       cursor: 'pointer',
       transition: 'all 0.15s ease',
       userSelect: 'none'
@@ -417,10 +420,10 @@ function LoginTractorista() {
     footer: {
       padding: '0.85rem',
       textAlign: 'center',
-      borderTop: '1px solid rgba(255,255,255,0.04)',
+      borderTop: `1px solid ${c.borde}`,
       fontSize: '0.7rem',
-      color: 'rgba(255,255,255,0.25)',
-      background: '#15152a',
+      color: c.suave,
+      background: c.tarjeta,
       letterSpacing: '0.05em'
     }
   }
@@ -476,15 +479,15 @@ function LoginTractorista() {
                       e.target.style.background = 'rgba(156,39,176,0.06)'
                     }}
                     onBlur={e => {
-                      e.target.style.borderColor = 'rgba(255,255,255,0.08)'
-                      e.target.style.background = 'rgba(255,255,255,0.04)'
+                      e.target.style.borderColor = c.borde
+                      e.target.style.background = c.campo
                     }}
                   />
                 </div>
               </div>
 
               <div style={{ ...styles.inputGroup, marginBottom: '1.25rem' }}>
-                <label style={styles.label}>Código</label>
+                <label style={styles.label}>Cédula</label>
                 <div style={styles.inputWrap}>
                   <i className='bx bx-lock-alt' style={styles.inputIcon}></i>
                   <input
@@ -503,8 +506,8 @@ function LoginTractorista() {
                       e.target.style.background = 'rgba(156,39,176,0.06)'
                     }}
                     onBlur={e => {
-                      e.target.style.borderColor = 'rgba(255,255,255,0.08)'
-                      e.target.style.background = 'rgba(255,255,255,0.04)'
+                      e.target.style.borderColor = c.borde
+                      e.target.style.background = c.campo
                     }}
                   />
                 </div>
@@ -536,12 +539,12 @@ function LoginTractorista() {
                   {(nombreCompleto || username).charAt(0).toUpperCase()}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ color: '#fff', fontWeight: 600, fontSize: '0.95rem' }}>{nombreCompleto}</div>
-                  <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: '0.75rem' }}>{username}</div>
+                  <div style={{ color: c.texto, fontWeight: 600, fontSize: '0.95rem' }}>{nombreCompleto}</div>
+                  <div style={{ color: c.suave, fontSize: '0.75rem' }}>{username}</div>
                 </div>
                 <button onClick={volverPaso1} style={{
-                  background: 'rgba(255,255,255,0.06)', border: 'none',
-                  color: 'rgba(255,255,255,0.4)', cursor: 'pointer', fontSize: '1.1rem',
+                  background: c.borde, border: 'none',
+                  color: c.suave, cursor: 'pointer', fontSize: '1.1rem',
                   borderRadius: '8px', padding: '0.35rem 0.5rem', transition: 'all 0.2s'
                 }}>
                   <i className='bx bx-x'></i>
@@ -595,7 +598,7 @@ function LoginTractorista() {
               {/* Label dinámico */}
               <div style={{ textAlign: 'center', marginBottom: '1rem' }}>
                 <label style={{
-                  fontSize: '0.8rem', color: 'rgba(255,255,255,0.45)',
+                  fontSize: '0.8rem', color: c.etiqueta,
                   display: 'block', marginBottom: '0.75rem',
                   fontWeight: 500, letterSpacing: '0.03em', textTransform: 'uppercase'
                 }}>
