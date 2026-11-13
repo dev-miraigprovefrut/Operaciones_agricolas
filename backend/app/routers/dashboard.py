@@ -4,6 +4,7 @@ Una sola llamada (GET /api/dashboard) con consultas FIJAS (sin SQL armado con te
 Cada parte sale solo si el usuario tiene el permiso de su reporte:
   * cosecha  -> reportes_cosecha
   * tractores/operadores/actividades -> reportes_actividades
+  * fichas de aplicacion sin sincronizar con Jireh -> reportes_fichas_aplicacion
 Los admins del modulo ven todo.
 
 Horas: solo actividades Finalizadas (tiempo_real esta en MINUTOS). Las de mas de HORAS_MAX horas casi
@@ -83,6 +84,16 @@ _SQL_FALLAS_TRAC = text("""SELECT tractor AS nombre, count(*) AS fallas, max(fec
     FROM falla_tractor WHERE lower(estado) = 'pendiente'
     GROUP BY tractor ORDER BY fallas DESC, ultima DESC LIMIT 5""")
 
+# ------------------------------------------------- fichas de aplicacion (Jireh)
+# Falta sincronizar = aplicada en campo pero sin ENVIADO a Jireh (nunca enviada o con error). Todas las fechas.
+_SQL_FICHAS = text("""SELECT
+        count(*) FILTER (WHERE estado_aplicacion = 'APLICADA' AND coalesce(envio_erp, '') <> 'ENVIADO') AS sin_sincronizar,
+        count(*) FILTER (WHERE estado_aplicacion = 'APLICADA' AND envio_erp = 'ERROR')                  AS con_error,
+        count(*) FILTER (WHERE estado_aplicacion = 'EN_CURSO')                                          AS en_curso,
+        min(fecha_aplicacion) FILTER (WHERE estado_aplicacion = 'APLICADA'
+                                        AND coalesce(envio_erp, '') <> 'ENVIADO')                        AS mas_antigua
+    FROM ficha_aplicacion""")
+
 # ----------------------------------------------------------------- cosecha
 # Proyecto = centro de costos de la ficha (es el proyecto); si falta, el de la orden en Informix.
 _COS = """FROM cosecha_transporte t
@@ -143,7 +154,8 @@ def dashboard(desde: Optional[date] = None, hasta: Optional[date] = None,
               db: Session = Depends(get_db), user: Usuario = Depends(requiere_usuario_hub)):
     ver_trac = user.puede("reportes_actividades")
     ver_cos = user.puede("reportes_cosecha")
-    if not (ver_trac or ver_cos):
+    ver_fichas = user.puede("reportes_fichas_aplicacion")
+    if not (ver_trac or ver_cos or ver_fichas):
         raise HTTPException(403, "Sin permiso para ver el dashboard")
 
     hoy = ahora_ecuador().date()
@@ -177,6 +189,8 @@ def dashboard(desde: Optional[date] = None, hasta: Optional[date] = None,
             "fallas": _uno(db, _SQL_FALLAS, {}),
             "fallas_tractores": _filas(db, _SQL_FALLAS_TRAC, {}),
         }
+    if ver_fichas:
+        res["fichas"] = _uno(db, _SQL_FICHAS, {})
     if ver_cos:
         res["cosecha"] = {
             "kpi": _uno(db, _SQL_KPI_COS, p),

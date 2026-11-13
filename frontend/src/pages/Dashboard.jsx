@@ -254,6 +254,7 @@ function Dashboard() {
 
   const tr = datos?.tractores
   const co = datos?.cosecha
+  const fi = datos?.fichas
   const kt = tr?.kpi || {}
   const kc = co?.kpi || {}
   const paso = datos?.paso || 'dia'
@@ -362,6 +363,31 @@ function Dashboard() {
               </Tarjeta>
             )}
 
+            {/* En este momento (fila de arriba, junto a cosecha y equipos) */}
+            {tr && (
+              <Tarjeta titulo="En este momento" icono="bx-broadcast"
+                       extra={<span className="dsh-sub">{enCurso.length} trabajando{pausados.length ? ` · ${pausados.length} en pausa` : ''}</span>}>
+                {!tr.ahora.length ? <Vacio texto="Nadie está trabajando ahora" /> : (
+                  <ul className="dsh-ahora">
+                    {tr.ahora.map(a => (
+                      <li key={a.id} className={a.estado === 'Pausado' ? 'pausa' : ''}>
+                        <span className={`dsh-estado ${a.estado === 'Pausado' ? 'pausa' : 'vivo'}`}>
+                          <i className={`bx ${a.estado === 'Pausado' ? 'bx-pause' : 'bx-play'}`} aria-hidden="true"></i>
+                          {a.estado === 'Pausado' ? 'Pausa' : 'Trabajando'}
+                        </span>
+                        <div className="dsh-ahora-txt">
+                          <b>{a.usuario || 'Sin operador'}</b>
+                          <span>{a.tractor || a.equipo} · {a.actividad}{a.subactividad ? ` / ${a.subactividad}` : ''}</span>
+                          {(a.lote || a.hacienda) && <span className="dsh-sub">{[a.hacienda, a.lote].filter(Boolean).join(' · ')}</span>}
+                        </div>
+                        <span className="dsh-ahora-t" title={`Desde ${fechaCorta(a.desde)}`}>{transcurrido(a.desde)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </Tarjeta>
+            )}
+
             {/* Tendencia */}
             {(tr || co) && (
               <Tarjeta titulo={`Tendencia por ${paso}`} icono="bx-line-chart" className="ancho">
@@ -391,43 +417,29 @@ function Dashboard() {
               </Tarjeta>
             )}
 
-            {/* En este momento */}
-            {tr && (
-              <Tarjeta titulo="En este momento" icono="bx-broadcast"
-                       extra={<span className="dsh-sub">{enCurso.length} trabajando{pausados.length ? ` · ${pausados.length} en pausa` : ''}</span>}>
-                {!tr.ahora.length ? <Vacio texto="Nadie está trabajando ahora" /> : (
-                  <ul className="dsh-ahora">
-                    {tr.ahora.map(a => (
-                      <li key={a.id} className={a.estado === 'Pausado' ? 'pausa' : ''}>
-                        <span className={`dsh-estado ${a.estado === 'Pausado' ? 'pausa' : 'vivo'}`}>
-                          <i className={`bx ${a.estado === 'Pausado' ? 'bx-pause' : 'bx-play'}`} aria-hidden="true"></i>
-                          {a.estado === 'Pausado' ? 'Pausa' : 'Trabajando'}
-                        </span>
-                        <div className="dsh-ahora-txt">
-                          <b>{a.usuario || 'Sin operador'}</b>
-                          <span>{a.tractor || a.equipo} · {a.actividad}{a.subactividad ? ` / ${a.subactividad}` : ''}</span>
-                          {(a.lote || a.hacienda) && <span className="dsh-sub">{[a.hacienda, a.lote].filter(Boolean).join(' · ')}</span>}
-                        </div>
-                        <span className="dsh-ahora-t" title={`Desde ${fechaCorta(a.desde)}`}>{transcurrido(a.desde)}</span>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </Tarjeta>
-            )}
-
             {/* Para revisar */}
-            {tr && (
+            {(tr || fi) && (
               <Tarjeta titulo="Para revisar" icono="bx-error">
                 <div className="dsh-revisar-res">
-                  <Link to="/reportes/actividades" className={`dsh-aviso ${kt.largas ? 'alerta' : ''}`}>
-                    <b>{n0(kt.largas)}</b><span>actividades de más de {datos.horas_max} h (no suman en el tablero)</span>
-                  </Link>
-                  <Link to="/reportes/actividades" className="dsh-aviso">
-                    <b>{n0(kt.sin_revisar)}</b><span>actividades sin revisar en el rango</span>
-                  </Link>
+                  {fi && (
+                    <Link to="/reportes/fichas-aplicacion" className={`dsh-aviso ${fi.sin_sincronizar ? 'alerta' : ''}`}
+                          title={fi.mas_antigua ? `La más antigua sin sincronizar es del ${ddmm(deIso(fi.mas_antigua))}` : undefined}>
+                      <b>{n0(fi.sin_sincronizar)}</b>
+                      <span>fichas de aplicación sin sincronizar con Jireh{fi.con_error ? ` (${n0(fi.con_error)} con error)` : ''}</span>
+                    </Link>
+                  )}
+                  {tr && (
+                    <Link to="/reportes/actividades" className={`dsh-aviso ${kt.largas ? 'alerta' : ''}`}>
+                      <b>{n0(kt.largas)}</b><span>actividades de más de {datos.horas_max} h (no suman en el tablero)</span>
+                    </Link>
+                  )}
+                  {tr && (
+                    <Link to="/reportes/actividades" className="dsh-aviso">
+                      <b>{n0(kt.sin_revisar)}</b><span>actividades sin revisar en el rango</span>
+                    </Link>
+                  )}
                 </div>
-                {tr.largas.length > 0 && (
+                {tr?.largas.length > 0 && (
                   <>
                     <h3 className="dsh-h3">Probablemente quedaron sin cerrar</h3>
                     <ul className="dsh-lista">
@@ -440,7 +452,7 @@ function Dashboard() {
                     </ul>
                   </>
                 )}
-                {tr.fallas_tractores?.length > 0 && (
+                {tr?.fallas_tractores?.length > 0 && (
                   <>
                     <h3 className="dsh-h3">Equipos con más fallas pendientes</h3>
                     <ul className="dsh-lista">
