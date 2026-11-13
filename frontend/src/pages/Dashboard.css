@@ -125,6 +125,11 @@ html.dark .dsh-fechas input { color-scheme: dark; }
 .dsh-rank-nombre { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dsh-rank-valor { flex: 0 0 auto; color: var(--dsh-suave); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .dsh-rank-valor b { color: var(--dsh-texto); }
+.dsh-rank-sub {
+  font-size: .76rem; color: var(--dsh-suave); margin: -2px 0 4px; display: flex; align-items: center; gap: 4px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.dsh-rank-sub i { font-size: .85rem; opacity: .8; }
 .dsh-barra { display: flex; gap: 2px; height: 8px; background: var(--dsh-pista); border-radius: 4px; overflow: hidden; }
 .dsh-seg { display: block; height: 100%; min-width: 3px; }
 .dsh-seg:last-child { border-radius: 0 4px 4px 0; }

@@ -109,7 +109,7 @@ function Vacio({ texto = 'Sin datos en este rango' }) {
  * Barras horizontales (ranking). segmentos: [{campo, clase, nombre}] - el primero es la
  * medida principal; el resto se apila a continuacion (p.ej. horas de paro).
  */
-function Ranking({ filas, segmentos, etiquetaValor, detalle, tip, onClick, activo }) {
+function Ranking({ filas, segmentos, etiquetaValor, detalle, tip, onClick, activo, sub }) {
   if (!filas?.length) return <Vacio />
   const total = f => segmentos.reduce((s, sg) => s + (f[sg.campo] || 0), 0)
   const max = Math.max(...filas.map(total), 1)
@@ -126,6 +126,7 @@ function Ranking({ filas, segmentos, etiquetaValor, detalle, tip, onClick, activ
               <span className="dsh-rank-nombre" title={f.nombre ?? f.proyecto}>{f.nombre ?? f.proyecto}</span>
               <span className="dsh-rank-valor">{etiquetaValor(f)}</span>
             </div>
+            {sub && <div className="dsh-rank-sub">{sub(f)}</div>}
             <div className="dsh-barra" aria-hidden="true">
               {segmentos.map(sg => (f[sg.campo] > 0) && (
                 <span key={sg.campo} className={`dsh-seg ${sg.clase}`} style={{ width: `${(f[sg.campo] / max) * 100}%` }} />
@@ -332,7 +333,7 @@ function Dashboard() {
           <div className="dsh-grid">
             {/* Cosecha por proyecto */}
             {co && (
-              <Tarjeta titulo="Fichas de cosecha por proyecto" icono="bxs-leaf" className="ancho"
+              <Tarjeta titulo="Fichas de cosecha por proyecto" icono="bxs-leaf"
                        extra={<Leyenda items={[{ nombre: 'Recibida', clase: 'st-ok' }, { nombre: 'En camino', clase: 'st-camino' }, { nombre: 'Con falla', clase: 'st-falla' }]} />}>
                 <p className="dsh-ayuda">Toque un proyecto para ver solo su cosecha (las horas de maquinaria no se separan por proyecto).</p>
                 <Ranking filas={co.por_proyecto} tip={tip} activo={proyecto}
@@ -344,6 +345,23 @@ function Dashboard() {
               </Tarjeta>
             )}
 
+            {/* Equipos y sus operadores: un solo ranking (cada operador anda en su equipo) */}
+            {tr && (
+              <Tarjeta titulo="Equipos y operadores con más horas" icono="bxs-car-mechanic"
+                       extra={<Leyenda items={[{ nombre: 'Trabajo', clase: 'serie-principal' }, { nombre: 'Paro', clase: 'serie-paro' }]} />}>
+                <Ranking filas={tr.top_tractores} tip={tip}
+                         segmentos={[{ campo: 'horas', clase: 'serie-principal' }, { campo: 'paro', clase: 'serie-paro' }]}
+                         etiquetaValor={f => <><b>{horas(f.horas)}</b>{f.paro >= 0.5 ? ` · ${horas(f.paro)} paro` : ''}</>}
+                         sub={f => {
+                           const ops = f.lista || []
+                           const nom = o => (ops.length > 1 ? `${o.nombre} (${horas(o.horas)})` : o.nombre)
+                           return <><i className="bx bxs-user" aria-hidden="true"></i>{ops.slice(0, 2).map(nom).join(' · ')}{ops.length > 2 ? ` · +${ops.length - 2} más` : ''}</>
+                         }}
+                         detalle={f => <><b>{f.nombre}</b><div>Trabajo {horas(f.horas)} · Paro {horas(f.paro)} · {n0(f.actividades)} actividades</div>
+                           {(f.lista || []).map(o => <div key={o.nombre}>· {o.nombre}: {horas(o.horas)} en {n0(o.dias)} día{o.dias === 1 ? '' : 's'}</div>)}</>} />
+              </Tarjeta>
+            )}
+
             {/* Tendencia */}
             {(tr || co) && (
               <Tarjeta titulo={`Tendencia por ${paso}`} icono="bx-line-chart" className="ancho">
@@ -351,27 +369,6 @@ function Dashboard() {
                   {co && <Columnas serie={serieFichas} paso={paso} clase="serie-cosecha" formato={n0} nombre="Fichas de cosecha" tip={tip} />}
                   {tr && <Columnas serie={serieHoras} paso={paso} clase="serie-principal" formato={horas} nombre="Horas de maquinaria" tip={tip} />}
                 </div>
-              </Tarjeta>
-            )}
-
-            {tr && (
-              <Tarjeta titulo="Equipos con más horas" icono="bxs-car-mechanic"
-                       extra={<Leyenda items={[{ nombre: 'Trabajo', clase: 'serie-principal' }, { nombre: 'Paro', clase: 'serie-paro' }]} />}>
-                <Ranking filas={tr.top_tractores} tip={tip}
-                         segmentos={[{ campo: 'horas', clase: 'serie-principal' }, { campo: 'paro', clase: 'serie-paro' }]}
-                         etiquetaValor={f => <><b>{horas(f.horas)}</b>{f.paro >= 0.5 ? ` · ${horas(f.paro)} paro` : ''}</>}
-                         detalle={f => <><b>{f.nombre}</b><div>Trabajo {horas(f.horas)} · Paro {horas(f.paro)}</div>
-                           <div>{n0(f.actividades)} actividades · {n0(f.operadores)} operador{f.operadores === 1 ? '' : 'es'}</div></>} />
-              </Tarjeta>
-            )}
-
-            {tr && (
-              <Tarjeta titulo="Operadores con más horas" icono="bxs-user-badge">
-                <Ranking filas={tr.top_operadores} tip={tip}
-                         segmentos={[{ campo: 'horas', clase: 'serie-principal' }]}
-                         etiquetaValor={f => <><b>{horas(f.horas)}</b> · {n0(f.dias)} día{f.dias === 1 ? '' : 's'}</>}
-                         detalle={f => <><b>{f.nombre}</b><div>{horas(f.horas)} en {n0(f.dias)} día{f.dias === 1 ? '' : 's'} ({horas(f.horas / (f.dias || 1))} por día)</div>
-                           <div>{n0(f.actividades)} actividades · {n0(f.tractores)} equipo{f.tractores === 1 ? '' : 's'}</div></>} />
               </Tarjeta>
             )}
 

@@ -1,0 +1,61 @@
+# Deploy automatico del FRONTEND en cada push a main que toque frontend/.
+# operacionesa.miraigprovefrut.com = Amplify d7jrvuvo1zfsk (rama main). La app de Amplify NO esta
+# conectada al repo (se creo con despliegue manual y Amplify no permite conectarla despues): este
+# workflow compila y le sube el zip, igual que el despliegue a mano. Las URLs salen de frontend/.env.production.
+# Credenciales: OIDC con el rol github-deploy (politica despliegue-amplify-operacionesa).
+name: Deploy frontend a Amplify
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/**'
+      - '.github/workflows/deploy-frontend.yml'
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-frontend-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  AMPLIFY_APP_ID: d7jrvuvo1zfsk
+  AMPLIFY_BRANCH: main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build
+        working-directory: frontend
+        run: npm ci && npm run build
+
+      - name: Credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::892302937756:role/github-deploy
+          role-session-name: gh-operacionesa-front-${{ github.run_id }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Deploy a Amplify
+        run: |
+          cd frontend/dist && zip -qr ../../site.zip . && cd ../..
+          read JOB URL < <(aws amplify create-deployment --app-id $AMPLIFY_APP_ID --branch-name $AMPLIFY_BRANCH --query '[jobId,zipUploadUrl]' --output text)
+          curl -fsS -X PUT -H "Content-Type: application/zip" --upload-file site.zip "$URL"
+          aws amplify start-deployment --app-id $AMPLIFY_APP_ID --branch-name $AMPLIFY_BRANCH --job-id $JOB >/dev/null
+          for i in $(seq 1 60); do
+            S=$(aws amplify get-job --app-id $AMPLIFY_APP_ID --branch-name $AMPLIFY_BRANCH --job-id $JOB --query job.summary.status --output text)
+            echo "estado: $S"; [ "$S" = SUCCEED ] && exit 0; [ "$S" = FAILED ] && exit 1; sleep 5
+          done; exit 1

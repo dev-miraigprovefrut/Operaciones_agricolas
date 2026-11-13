@@ -1,7 +1,6 @@
 # Deploy automatico del BACKEND a ECS Fargate en cada push a main que toque
-# backend/ (el frontend lo despliega Amplify por su cuenta con amplify.yml).
-# Credenciales: Settings > Secrets and variables > Actions
-# (AWS_ACCESS_KEY_ID y AWS_SECRET_ACCESS_KEY).
+# backend/ (el frontend lo despliega deploy-frontend.yml).
+# Credenciales: OIDC con el rol github-deploy (sin llaves en el repo).
 name: Deploy backend a AWS ECS
 
 on:

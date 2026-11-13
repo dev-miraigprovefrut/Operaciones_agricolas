@@ -49,15 +49,18 @@ _SQL_KPI_TRAC = text(f"""SELECT
 _SQL_TOP_ACT = text(f"""SELECT r.actividad AS nombre, count(*) AS veces, sum(r.tiempo_real) / 60.0 AS horas
     {_REG} AND {_VALIDA} GROUP BY r.actividad ORDER BY veces DESC, horas DESC LIMIT 10""")
 
-_SQL_TOP_TRAC = text(f"""SELECT coalesce(nullif(trim(r.tractor), ''), 'Sin tractor') AS nombre,
-        sum(r.tiempo_real) / 60.0 AS horas, sum(r.tiempo_paro) / 60.0 AS paro, count(*) AS actividades,
-        count(DISTINCT r.usuario) AS operadores
-    {_REG} AND {_VALIDA} GROUP BY 1 ORDER BY horas DESC LIMIT 10""")
-
-_SQL_TOP_OPER = text(f"""SELECT coalesce(nullif(trim(r.usuario), ''), 'Sin operador') AS nombre,
-        sum(r.tiempo_real) / 60.0 AS horas, count(*) AS actividades, count(DISTINCT r.tractor) AS tractores,
-        count(DISTINCT r.fecha_creacion::date) AS dias
-    {_REG} AND {_VALIDA} GROUP BY 1 ORDER BY horas DESC LIMIT 10""")
+# Equipo + quienes lo manejaron (con sus horas): en la practica cada operador anda en su equipo,
+# por eso el dashboard muestra UN ranking de equipos con sus operadores, no dos casi iguales.
+_SQL_TOP_TRAC = text(f"""WITH base AS (
+        SELECT coalesce(nullif(trim(r.tractor), ''), 'Sin tractor') AS tractor,
+               coalesce(nullif(trim(r.usuario), ''), 'Sin operador') AS usuario,
+               sum(r.tiempo_real) / 60.0 AS h, sum(r.tiempo_paro) / 60.0 AS p, count(*) AS n,
+               count(DISTINCT r.fecha_creacion::date) AS dias
+        {_REG} AND {_VALIDA} GROUP BY 1, 2)
+    SELECT tractor AS nombre, sum(h) AS horas, sum(p) AS paro, sum(n) AS actividades, count(*) AS operadores,
+           json_agg(json_build_object('nombre', usuario, 'horas', round(h::numeric, 1), 'dias', dias)
+                    ORDER BY h DESC) AS lista
+    FROM base GROUP BY tractor ORDER BY horas DESC LIMIT 10""")
 
 _SQL_LARGAS = text(f"""SELECT r.id_registro AS id, r.fecha_creacion AS fecha, r.usuario, r.tractor, r.actividad,
         r.tiempo_real / 60.0 AS horas, r.revision_estado
@@ -168,7 +171,6 @@ def dashboard(desde: Optional[date] = None, hasta: Optional[date] = None,
             "kpi": _uno(db, _SQL_KPI_TRAC, p),
             "top_actividades": _filas(db, _SQL_TOP_ACT, p),
             "top_tractores": _filas(db, _SQL_TOP_TRAC, p),
-            "top_operadores": _filas(db, _SQL_TOP_OPER, p),
             "tendencia": _filas(db, _SQL_TEND_TRAC[paso], p),
             "largas": _filas(db, _SQL_LARGAS, p),
             "ahora": _filas(db, _SQL_AHORA, p_ahora),
