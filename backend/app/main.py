@@ -12,7 +12,8 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 
 from .config import settings
-from .routers import admin, app_tablet, catalogos, compartido, cosecha, empresas, fichas, lotes, pesaje, sesion, tablets, tractores
+from .routers import (admin, app_tablet, catalogos, compartido, cosecha, dashboard, empresas, fichas, lotes, pesaje,
+                      sesion, tablets, tractores)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("operagricola")
@@ -49,7 +50,8 @@ def health():
     return {"status": "ok"}
 
 
-for r in (sesion, admin, catalogos, compartido, tractores, cosecha, lotes, empresas, fichas, pesaje, tablets, app_tablet):
+for r in (sesion, admin, catalogos, compartido, tractores, cosecha, lotes, empresas, fichas, pesaje, tablets, app_tablet,
+          dashboard):
     app.include_router(r.router)
 
 
