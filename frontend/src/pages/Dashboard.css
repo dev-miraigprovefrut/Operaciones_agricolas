@@ -89,7 +89,7 @@ html.dark .dsh-fechas input { color-scheme: dark; }
 /* ---------- tarjetas */
 /* 3 columnas: arriba cosecha | equipos | en este momento; tendencia a lo ancho; abajo
    actividades | que se cosecho | para revisar */
-.dsh-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+.dsh-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
 @media (max-width: 1280px) { .dsh-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .dsh-card {
   background: var(--dsh-card); border: 1px solid var(--dsh-borde); border-radius: var(--dsh-radio);
@@ -128,11 +128,7 @@ html.dark .dsh-fechas input { color-scheme: dark; }
 .dsh-rank-nombre { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .dsh-rank-valor { flex: 0 0 auto; color: var(--dsh-suave); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .dsh-rank-valor b { color: var(--dsh-texto); }
-.dsh-rank-sub {
-  font-size: .76rem; color: var(--dsh-suave); margin: -2px 0 4px; display: flex; align-items: center; gap: 4px;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.dsh-rank-sub i { font-size: .85rem; opacity: .8; }
+.dsh-rank-sub { font-size: .78rem; color: var(--dsh-suave); }
 .dsh-barra { display: flex; gap: 2px; height: 8px; background: var(--dsh-pista); border-radius: 4px; overflow: hidden; }
 .dsh-seg { display: block; height: 100%; min-width: 3px; }
 .dsh-seg:last-child { border-radius: 0 4px 4px 0; }

@@ -109,8 +109,9 @@ function Vacio({ texto = 'Sin datos en este rango' }) {
  * Barras horizontales (ranking). segmentos: [{campo, clase, nombre}] - el primero es la
  * medida principal; el resto se apila a continuacion (p.ej. horas de paro).
  */
-function Ranking({ filas, segmentos, etiquetaValor, detalle, tip, onClick, activo, sub }) {
-  if (!filas?.length) return <Vacio />
+function Ranking({ filas: todas, segmentos, etiquetaValor, detalle, tip, onClick, activo, sub, max: maxFilas = 8 }) {
+  if (!todas?.length) return <Vacio />
+  const filas = todas.slice(0, maxFilas)
   const total = f => segmentos.reduce((s, sg) => s + (f[sg.campo] || 0), 0)
   const max = Math.max(...filas.map(total), 1)
   return (
@@ -123,10 +124,12 @@ function Ranking({ filas, segmentos, etiquetaValor, detalle, tip, onClick, activ
           <span className="dsh-rank-pos">{i + 1}</span>
           <div className="dsh-rank-cuerpo">
             <div className="dsh-rank-fila">
-              <span className="dsh-rank-nombre" title={f.nombre ?? f.proyecto}>{f.nombre ?? f.proyecto}</span>
+              <span className="dsh-rank-nombre" title={f.nombre ?? f.proyecto}>
+                {f.nombre ?? f.proyecto}
+                {sub && sub(f) && <small className="dsh-rank-sub"> · {sub(f)}</small>}
+              </span>
               <span className="dsh-rank-valor">{etiquetaValor(f)}</span>
             </div>
-            {sub && <div className="dsh-rank-sub">{sub(f)}</div>}
             <div className="dsh-barra" aria-hidden="true">
               {segmentos.map(sg => (f[sg.campo] > 0) && (
                 <span key={sg.campo} className={`dsh-seg ${sg.clase}`} style={{ width: `${(f[sg.campo] / max) * 100}%` }} />
@@ -322,7 +325,7 @@ function Dashboard() {
             {co && <Kpi icono="bx-package" valor={kg(kc.peso)} etiqueta="Cosechado (peso de campo)"
                         detalle={`${n0(kc.proyectos)} proyecto${kc.proyectos === 1 ? '' : 's'}${kc.con_falla ? ` · ${n0(kc.con_falla)} con falla` : ''}`} />}
             {tr && <Kpi icono="bx-time-five" valor={horas(kt.horas)} etiqueta="Horas trabajadas"
-                        detalle={`${horas(kt.horas_paro)} de paro · ${n0(kt.actividades)} actividades`} />}
+                        detalle={`${n0(kt.actividades)} actividades`} />}
             {tr && <Kpi icono="bx-group" valor={`${n0(kt.operadores)} / ${n0(kt.tractores)}`} etiqueta="Operadores / equipos"
                         detalle={kt.operadores ? `${horas(kt.horas / kt.operadores)} promedio por operador` : 'Sin actividad'} />}
             {tr && <Kpi icono="bx-play-circle" valor={n0(enCurso.length)} etiqueta="Trabajando ahora" vivo={enCurso.length > 0}
@@ -348,17 +351,16 @@ function Dashboard() {
 
             {/* Equipos y sus operadores: un solo ranking (cada operador anda en su equipo) */}
             {tr && (
-              <Tarjeta titulo="Equipos y operadores con más horas" icono="bxs-car-mechanic"
-                       extra={<Leyenda items={[{ nombre: 'Trabajo', clase: 'serie-principal' }, { nombre: 'Paro', clase: 'serie-paro' }]} />}>
+              <Tarjeta titulo="Equipos y operadores con más horas" icono="bxs-car-mechanic">
                 <Ranking filas={tr.top_tractores} tip={tip}
-                         segmentos={[{ campo: 'horas', clase: 'serie-principal' }, { campo: 'paro', clase: 'serie-paro' }]}
-                         etiquetaValor={f => <><b>{horas(f.horas)}</b>{f.paro >= 0.5 ? ` · ${horas(f.paro)} paro` : ''}</>}
+                         segmentos={[{ campo: 'horas', clase: 'serie-principal' }]}
+                         etiquetaValor={f => <b>{horas(f.horas)}</b>}
                          sub={f => {
                            const ops = f.lista || []
-                           const nom = o => (ops.length > 1 ? `${o.nombre} (${horas(o.horas)})` : o.nombre)
-                           return <><i className="bx bxs-user" aria-hidden="true"></i>{ops.slice(0, 2).map(nom).join(' · ')}{ops.length > 2 ? ` · +${ops.length - 2} más` : ''}</>
+                           if (!ops.length) return null
+                           return ops[0].nombre + (ops.length > 1 ? ` +${ops.length - 1}` : '')
                          }}
-                         detalle={f => <><b>{f.nombre}</b><div>Trabajo {horas(f.horas)} · Paro {horas(f.paro)} · {n0(f.actividades)} actividades</div>
+                         detalle={f => <><b>{f.nombre}</b><div>{horas(f.horas)} · {n0(f.actividades)} actividades</div>
                            {(f.lista || []).map(o => <div key={o.nombre}>· {o.nombre}: {horas(o.horas)} en {n0(o.dias)} día{o.dias === 1 ? '' : 's'}</div>)}</>} />
               </Tarjeta>
             )}
