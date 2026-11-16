@@ -164,6 +164,33 @@ function ReporteActividades() {
     Swal.fire({ icon: 'success', title: 'Actividad eliminada', timer: 1200, showConfirmButton: false })
   }, [])
 
+  // ---- Corregir actividad / subactividad / lote (solo mientras NO este revisada) ----
+  const [formCorregir, setFormCorregir] = useState(null)
+  const [guardandoCorregir, setGuardandoCorregir] = useState(false)
+  const abrirCorregir = useCallback((r) => setFormCorregir({ id: r.id, usuario: r.usuario, equipo: r.equipo || 'Tractores',
+    actividad: r.actividad || '', subactividad: r.subactividad || '', lote: r.lote || '', hacienda: r.hacienda || '', motivo: '' }), [])
+  const guardarCorregir = async () => {
+    const f = formCorregir
+    if (!f.actividad) { Swal.fire({ icon: 'warning', title: 'Seleccione la actividad' }); return }
+    setGuardandoCorregir(true)
+    try {
+      const resp = await fetch(`${API_URL}/api/registros/${f.id}/editar`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actividad: f.actividad, subactividad: f.subactividad || null, lote: f.lote || null,
+          hacienda: f.hacienda || null, motivo: f.motivo || null })
+      })
+      const data = await resp.json().catch(() => ({}))
+      if (!resp.ok) throw new Error(typeof data.detail === 'string' ? data.detail : 'Revise los datos ingresados')
+      setRegistros(prev => prev.map(x => x.id === data.id ? data : x))
+      setFormCorregir(null)
+      Swal.fire({ icon: 'success', title: 'Actividad corregida', timer: 1200, showConfirmButton: false })
+    } catch (err) {
+      Swal.fire({ icon: 'error', title: 'No se pudo corregir', text: err.message || 'Sin conexión con el servidor' })
+    } finally {
+      setGuardandoCorregir(false)
+    }
+  }
+
   const guardarRevision = async () => {
     const ids = Object.keys(seleccion).filter(id => seleccion[id]).map(Number)
     if (!ids.length) return
@@ -1107,7 +1134,7 @@ function ReporteActividades() {
                         <TablaJornada j={j} puedeRevisar={puedeRevisar} etiquetaEquipo={nombreEquipo}
                           sel={regsDia.filter(r => seleccion[r.id]).map(r => r.id).join(',')}
                           ed={regsDia.some(r => ediciones[r.id]) ? JSON.stringify(Object.fromEntries(regsDia.filter(r => ediciones[r.id]).map(r => [r.id, ediciones[r.id]]))) : ''}
-                          onToggle={toggleSeleccion} onMarcar={marcarSeleccion} onEditar={editarHora} onEliminar={eliminarActividad} />
+                          onToggle={toggleSeleccion} onMarcar={marcarSeleccion} onEditar={editarHora} onEliminar={eliminarActividad} onCorregir={abrirCorregir} />
                       </div>
                     )
                   })}
@@ -1479,6 +1506,66 @@ function ReporteActividades() {
                 <button onClick={guardarAgregar} disabled={guardandoAgregar}
                   style={{background: '#28a745', color: 'white', border: 'none', borderRadius: '6px', padding: '0.4rem 1rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem'}}>
                   <i className={`bx ${guardandoAgregar ? 'bx-loader-alt bx-spin' : 'bx-save'}`}></i> Agregar
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {formCorregir && (() => {
+        const f = formCorregir
+        const set = (c, v) => setFormCorregir(p => ({ ...p, [c]: v, ...(c === 'actividad' ? { subactividad: '' } : {}) }))
+        const actsTipo = catalogoActs.filter(a => (a.equipo || 'Tractores') === f.equipo)
+        const act = actsTipo.find(a => a.actividad === f.actividad)
+        const subs = (act?.subactividades || []).map(sb => typeof sb === 'string' ? sb : sb.nombre)
+        // la subactividad actual se muestra aunque ya no este en el catalogo
+        if (f.subactividad && !subs.includes(f.subactividad)) subs.unshift(f.subactividad)
+        const opciones = (c) => [...new Set(registros.filter(r => (r.equipo || 'Tractores') === f.equipo).map(r => r[c]).filter(Boolean))].sort()
+        const campo = { fontSize: '0.85rem', width: '100%' }
+        const etiqueta = { display: 'grid', gap: '0.2rem', fontSize: '0.78rem', color: 'var(--color-text-secondary)' }
+        return (
+          <div style={{position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem'}}
+            onClick={() => !guardandoCorregir && setFormCorregir(null)}>
+            <div onClick={e => e.stopPropagation()}
+              style={{background: 'var(--color-bg-white)', borderRadius: '12px', width: '100%', maxWidth: '560px', maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.3)'}}>
+              <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.8rem 1.2rem', borderBottom: '1px solid var(--color-border)', background: 'var(--color-bg-light)'}}>
+                <span style={{fontWeight: 600, color: 'var(--color-text-primary)'}}><i className='bx bx-edit'></i> Corregir actividad <small style={{fontWeight: 400, color: 'var(--color-text-secondary)'}}>— {f.usuario}</small></span>
+                <button onClick={() => setFormCorregir(null)} disabled={guardandoCorregir} style={{background: 'var(--color-border)', border: 'none', borderRadius: '6px', padding: '0.3rem 0.6rem', cursor: 'pointer', color: 'var(--color-text-secondary)'}}>
+                  <i className='bx bx-x'></i>
+                </button>
+              </div>
+              <div style={{padding: '1rem 1.2rem', overflowY: 'auto', display: 'grid', gap: '0.7rem', gridTemplateColumns: '1fr 1fr'}}>
+                <label style={{...etiqueta, gridColumn: '1 / -1'}}>Actividad *
+                  <select className="form-control" value={f.actividad} onChange={e => set('actividad', e.target.value)} style={campo}>
+                    <option value="">Seleccione…</option>
+                    {actsTipo.map(a => <option key={a.id} value={a.actividad}>{a.actividad}</option>)}
+                  </select>
+                </label>
+                <label style={{...etiqueta, gridColumn: '1 / -1'}}>Subactividad
+                  <select className="form-control" value={f.subactividad} onChange={e => set('subactividad', e.target.value)} style={campo} disabled={!subs.length}>
+                    <option value="">{subs.length ? 'Seleccione…' : '-'}</option>
+                    {subs.map(n => <option key={n} value={n}>{n}</option>)}
+                  </select>
+                </label>
+                <label style={etiqueta}>Lote
+                  <input className="form-control" list="co-lotes" value={f.lote} onChange={e => set('lote', e.target.value)} style={campo} />
+                  <datalist id="co-lotes">{opciones('lote').map(v => <option key={v} value={v} />)}</datalist>
+                </label>
+                <label style={etiqueta}>Hacienda
+                  <input className="form-control" list="co-haciendas" value={f.hacienda} onChange={e => set('hacienda', e.target.value)} style={campo} />
+                  <datalist id="co-haciendas">{opciones('hacienda').map(v => <option key={v} value={v} />)}</datalist>
+                </label>
+                <label style={{...etiqueta, gridColumn: '1 / -1'}}>Motivo
+                  <input className="form-control" maxLength={300} placeholder="Ej. el operador eligió otra actividad" value={f.motivo} onChange={e => set('motivo', e.target.value)} style={campo} />
+                </label>
+              </div>
+              <div style={{display: 'flex', justifyContent: 'flex-end', gap: '0.5rem', padding: '0.8rem 1.2rem', borderTop: '1px solid var(--color-border)'}}>
+                <button onClick={() => setFormCorregir(null)} disabled={guardandoCorregir}
+                  style={{background: 'var(--color-bg-light)', border: '1px solid var(--color-border)', borderRadius: '6px', padding: '0.4rem 1rem', cursor: 'pointer', color: 'var(--color-text-primary)'}}>Cancelar</button>
+                <button onClick={guardarCorregir} disabled={guardandoCorregir}
+                  style={{background: '#28a745', color: 'white', border: 'none', borderRadius: '6px', padding: '0.4rem 1rem', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '0.3rem'}}>
+                  <i className={`bx ${guardandoCorregir ? 'bx-loader-alt bx-spin' : 'bx-save'}`}></i> Guardar
                 </button>
               </div>
             </div>

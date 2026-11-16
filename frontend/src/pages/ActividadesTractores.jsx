@@ -133,6 +133,33 @@ function ActividadesTractores() {
     return matchSearch && matchTipo
   })
 
+  // Excel: una fila por subactividad (las que se ven con el filtro y la búsqueda)
+  const descargarExcel = async () => {
+    const { default: ExcelJS } = await import('exceljs')
+    const wb = new ExcelJS.Workbook()
+    const ws = wb.addWorksheet(`Actividades ${equipo}`)
+    ws.columns = [
+      { header: 'Código', key: 'codigo', width: 12 },
+      { header: 'Actividad', key: 'actividad', width: 42 },
+      { header: 'Tipo', key: 'tipo', width: 24 },
+      { header: 'Subactividad', key: 'sub', width: 42 },
+    ]
+    actividadesFiltradas.forEach(a => {
+      const subs = a.subactividades.length ? a.subactividades.map(s => s.nombre) : ['']
+      subs.forEach(sub => ws.addRow({ codigo: a.codigo, actividad: a.nombre, tipo: a.tipo, sub }))
+    })
+    ws.getRow(1).font = { bold: true, color: { argb: 'FFFFFFFF' } }
+    ws.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF6A1B9A' } }
+    ws.autoFilter = { from: 'A1', to: 'D1' }
+    ws.views = [{ state: 'frozen', ySplit: 1 }]
+    const blob = new Blob([await wb.xlsx.writeBuffer()], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `actividades-${equipo.toLowerCase()}-${new Date().toISOString().split('T')[0]}.xlsx`
+    a.click()
+    URL.revokeObjectURL(a.href)
+  }
+
   // Paginación
   const totalPages = Math.ceil(actividadesFiltradas.length / ITEMS_PER_PAGE)
   const startIndex = (currentPage - 1) * ITEMS_PER_PAGE
@@ -187,7 +214,11 @@ function ActividadesTractores() {
             ))}
           </div>
         </div>
-        <div className="page-actions">
+        <div className="page-actions" style={{display: 'flex', gap: '0.5rem'}}>
+          <button className="btn btn-secondary" onClick={descargarExcel} disabled={!actividadesFiltradas.length}
+            title="Descargar las actividades que se ven (con el filtro y la búsqueda)">
+            <i className='bx bxs-file'></i> Excel
+          </button>
           <button className="btn btn-primary" onClick={openDrawerCrear}>
             <i className='bx bx-plus'></i> Nueva Actividad
           </button>

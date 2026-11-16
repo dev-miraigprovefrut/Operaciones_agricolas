@@ -17,7 +17,9 @@ const horaDe = (iso) => (iso || '').substring(11, 16)
 const eventoInicio = (r) => r.fecha_historial?.find(h => h.accion === 'inicio')
 const eventoFin = (r) => [...(r.fecha_historial || [])].reverse().find(h => h.accion === 'finalizado')
 
-function TablaJornada({ j, sel, ed, puedeRevisar, onToggle, onMarcar, onEditar, onEliminar, etiquetaEquipo = 'Tractor' }) {
+function TablaJornada({ j, sel, ed, puedeRevisar, onToggle, onMarcar, onEditar, onEliminar, onCorregir, etiquetaEquipo = 'Tractor' }) {
+  // En drones se muestra quien registro la aplicacion
+  const conUsuario = etiquetaEquipo === 'Dron'
   const marcados = new Set(sel ? sel.split(',').map(Number) : [])
   const ediciones = ed ? JSON.parse(ed) : {}
   const esRevisable = (r) => puedeRevisar && r.estado === 'Finalizado' && r.revision_estado !== 'REVISADO'
@@ -35,6 +37,7 @@ function TablaJornada({ j, sel, ed, puedeRevisar, onToggle, onMarcar, onEditar, 
         <thead>
           <tr>
             <th>{etiquetaEquipo}</th>
+            {conUsuario && <th>Usuario</th>}
             <th>Actividad</th>
             <th>Subactividad</th>
             <th>Lote</th>
@@ -69,6 +72,7 @@ function TablaJornada({ j, sel, ed, puedeRevisar, onToggle, onMarcar, onEditar, 
             return (
               <tr key={r.id}>
                 <td>{r.tractor || '-'}</td>
+                {conUsuario && <td>{r.usuario || '-'}</td>}
                 <td><strong>{r.actividad === 'APOYOS GENERALES' ? (r.subactividad || 'Apoyo General') : (r.actividad || '-')}</strong>
                   {r.fecha_historial?.[0]?.manual && <span title={`Agregada en el reporte por ${r.fecha_historial[0].por || ''}`} style={{marginLeft: '0.4rem', background: '#e3f2fd', color: '#1565c0', border: '1px solid #90caf9', borderRadius: '4px', padding: '0 4px', fontSize: '0.62rem', fontWeight: 600, textTransform: 'none'}}>Agregada</span>}
                 </td>
@@ -117,7 +121,13 @@ function TablaJornada({ j, sel, ed, puedeRevisar, onToggle, onMarcar, onEditar, 
                   )}
                 </td>
                 {hayEliminables && (
-                  <td style={{width: '1%'}}>
+                  <td style={{width: '1%', whiteSpace: 'nowrap'}}>
+                    {esEliminable(r) && onCorregir && (
+                      <button type="button" onClick={() => onCorregir(r)} title="Corregir actividad, subactividad o lote"
+                        style={{background: 'transparent', border: 'none', color: 'var(--color-primary, #7b1fa2)', cursor: 'pointer', fontSize: '1.15rem', padding: '0.2rem 0.3rem', lineHeight: 1}}>
+                        <i className='bx bx-edit'></i>
+                      </button>
+                    )}
                     {esEliminable(r) && (
                       <button type="button" onClick={() => onEliminar(r)} title="Eliminar esta actividad"
                         style={{background: 'transparent', border: 'none', color: '#dc3545', cursor: 'pointer', fontSize: '1.15rem', padding: '0.2rem 0.3rem', lineHeight: 1}}>

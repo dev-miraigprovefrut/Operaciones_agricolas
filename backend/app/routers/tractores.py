@@ -926,6 +926,44 @@ def eliminar_desde_reporte(registro_id: int, body: EliminarIn, db: Session = Dep
     return {"id": r.id, "message": "Actividad eliminada"}
 
 
+class EditarIn(BaseModel):
+    actividad: str = Field(min_length=1, max_length=250)
+    subactividad: Optional[str] = Field(None, max_length=250)
+    lote: Optional[str] = Field(None, max_length=100)
+    hacienda: Optional[str] = Field(None, max_length=150)
+    motivo: Optional[str] = Field(None, max_length=300)
+
+
+@router.post("/registros/{registro_id}/editar", response_model=RegistroOut)
+def editar_desde_reporte(registro_id: int, body: EditarIn, db: Session = Depends(get_db),
+                         user: Usuario = Depends(requiere("revisar_actividades"))):
+    """Corrige actividad, subactividad, lote y hacienda de una actividad mal
+    registrada, mientras NO este revisada. Las horas se corrigen en la revision."""
+    r = db.query(Registro).filter(Registro.id == registro_id).with_for_update().first()
+    if not r or r.estado == "Eliminado":
+        raise HTTPException(404, "Registro no encontrado")
+    _no_revisado(r)
+    act = db.scalar(select(Actividad).where(Actividad.actividad == body.actividad,
+                                            Actividad.equipo == (r.equipo or "Tractores")))
+    if not act:
+        raise HTTPException(400, f"La actividad '{body.actividad}' no está en el catálogo")
+    limpio = lambda v: (v or "").strip() or None
+    nuevos = {"actividad": body.actividad, "subactividad": limpio(body.subactividad),
+              "lote": limpio(body.lote), "hacienda": limpio(body.hacienda)}
+    cambios = {c: [getattr(r, c), v] for c, v in nuevos.items() if (getattr(r, c) or None) != v}
+    if not cambios:
+        return r
+    for c, v in nuevos.items():
+        setattr(r, c, v)
+    r.id_actividad, r.tipo = act.id, act.tipo or r.tipo
+    cambios["motivo"] = body.motivo
+    db.add(RegistroRevision(id_registro=r.id, accion="EDITADO", usuario=user.username, usuario_nombre=user.nombre,
+                            cambios=cambios, fecha=ahora_ecuador()))
+    db.commit()
+    db.refresh(r)
+    return r
+
+
 @router.get("/registros/{registro_id}/revisiones")
 def historial_revision(registro_id: int, db: Session = Depends(get_db),
                        _: Usuario = Depends(requiere("revisar_actividades", "reportes_actividades"))):
