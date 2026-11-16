@@ -68,8 +68,14 @@ def listar_drones(_: Usuario = Depends(_kiosko)):
 def _horas(mant: Session | None, tractor_id: str):
     if mant is None:
         return None
-    return mant.execute(text("SELECT tractor_id, marca_modelo, horas_actuales, estado FROM ot_equipo_horas "
+    fila = mant.execute(text("SELECT tractor_id, marca_modelo, horas_actuales, estado FROM ot_equipo_horas "
                              "WHERE tractor_id = :t"), {"t": tractor_id}).fetchone()
+    if fila:
+        return fila
+    # 'CASE-110 A-026' (como lo arma la app) vs 'CASE-110A-026' (Mantenimiento): solo letras y numeros
+    return mant.execute(text("SELECT tractor_id, marca_modelo, horas_actuales, estado FROM ot_equipo_horas "
+                             "WHERE regexp_replace(upper(tractor_id), '[^A-Z0-9]', '', 'g') = :c LIMIT 1"),
+                        {"c": "".join(ch for ch in tractor_id.upper() if ch.isalnum())}).fetchone()
 
 
 @router.get("/equipo-horas/{tractor_id}")
