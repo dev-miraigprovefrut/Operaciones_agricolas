@@ -80,7 +80,7 @@ def _usuario_token(db: Session, token: str) -> Usuario:
     _, lista = _tokens(db)
     t = next((x for x in lista if hmac.compare_digest(x.get("hash", ""), h)), None)
     if not t or not _vigente(t):
-        raise HTTPException(401, "Token de OT vencido, revocado o inválido: genere uno nuevo en MirAI (Pesaje › Token para OT)")
+        raise HTTPException(401, "Token de OT vencido, revocado o inválido: genere uno nuevo en MirAI (menú de su nombre › Token temporal)")
     return Usuario(username=t["username"], tipo="token_ot", nombre=f"{t.get('nombre') or t['username']} (OT)",
                    pestanas=["pesaje_cosecha"], id_persona=t.get("id_persona"))
 
@@ -167,12 +167,12 @@ def openapi_pesaje():
     esquema = get_openapi(
         title="API de Pesaje OT · Operaciones Agrícolas", version="2.3", routes=rutas,
         description="En cada ruta: **Try it out**, pegue su token de turno en el campo **X-Token-OT** (empieza con `ot_`) "
-                    "y complete los demás datos. El token se genera en MirAI: menú de su nombre → *Token para OT*. "
+                    "y complete los demás datos. El token se genera en MirAI: menú de su nombre → *Token temporal*. "
                     "Todo lo que registre queda a su nombre. El programa OT puede enviarlo así o como "
                     "`Authorization: Bearer ot_…`. Guía completa: API_PESAJE_OT.html.")
     # El token como campo visible de cada ruta (junto al numero de ficha), no en el candado
     campo_token = {"name": "X-Token-OT", "in": "header", "required": True, "schema": {"type": "string"},
-                   "description": "Token de turno (ot_...) generado en MirAI › Token para OT"}
+                   "description": "Token de turno (ot_...) generado en MirAI › menú de su nombre › Token temporal"}
     for operaciones in esquema.get("paths", {}).values():
         for op in operaciones.values():
             op["parameters"] = [campo_token] + [p for p in op.get("parameters", []) if p.get("name") != "X-Token-OT"]
