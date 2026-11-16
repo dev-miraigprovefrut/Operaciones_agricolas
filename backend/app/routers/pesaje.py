@@ -86,7 +86,13 @@ def _usuario_token(db: Session, token: str) -> Usuario:
 
 
 def PESAJE(request: Request, db: Session = Depends(get_db)) -> Usuario:
-    """Acceso a pesaje: token de OT (Bearer ot_...) o sesion del HUB con la pestana pesaje_cosecha."""
+    """Acceso a pesaje: token de OT (Bearer ot_... o encabezado X-Token-OT) o sesion del HUB
+    con la pestana pesaje_cosecha. X-Token-OT es el campo 'token' de la pagina /api/pesaje/docs."""
+    directo = (request.headers.get("x-token-ot") or "").strip()
+    if directo:
+        if not directo.startswith(PREFIJO_TOKEN):
+            raise HTTPException(401, "Token de OT inválido: debe empezar con ot_")
+        return _usuario_token(db, directo)
     auth = request.headers.get("authorization", "")
     if auth[:7].lower() == "bearer " and auth[7:].strip().startswith(PREFIJO_TOKEN):
         return _usuario_token(db, auth[7:].strip())
@@ -160,12 +166,16 @@ def openapi_pesaje():
     rutas = [r for r in router.routes if getattr(r, "path", "").startswith(_RUTAS_OT)]
     esquema = get_openapi(
         title="API de Pesaje OT · Operaciones Agrícolas", version="2.3", routes=rutas,
-        description="Pulse **Authorize** y pegue el token de turno (empieza con `ot_`). "
-                    "Se genera en MirAI: menú de su nombre → *Token para OT*. Todo lo que registre queda a su nombre. "
-                    "Guía completa: API_PESAJE_OT.html.")
-    esquema.setdefault("components", {})["securitySchemes"] = {
-        "tokenOT": {"type": "http", "scheme": "bearer", "description": "Token de turno de 12 h (ot_...)"}}
-    esquema["security"] = [{"tokenOT": []}]
+        description="En cada ruta: **Try it out**, pegue su token de turno en el campo **X-Token-OT** (empieza con `ot_`) "
+                    "y complete los demás datos. El token se genera en MirAI: menú de su nombre → *Token para OT*. "
+                    "Todo lo que registre queda a su nombre. El programa OT puede enviarlo así o como "
+                    "`Authorization: Bearer ot_…`. Guía completa: API_PESAJE_OT.html.")
+    # El token como campo visible de cada ruta (junto al numero de ficha), no en el candado
+    campo_token = {"name": "X-Token-OT", "in": "header", "required": True, "schema": {"type": "string"},
+                   "description": "Token de turno (ot_...) generado en MirAI › Token para OT"}
+    for operaciones in esquema.get("paths", {}).values():
+        for op in operaciones.values():
+            op["parameters"] = [campo_token] + [p for p in op.get("parameters", []) if p.get("name") != "X-Token-OT"]
     esquema["servers"] = [{"url": "/"}]
     return esquema
 
