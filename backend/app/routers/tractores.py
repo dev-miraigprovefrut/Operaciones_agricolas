@@ -120,6 +120,52 @@ def _id_mantenimiento(tractor: str) -> str:
     return (tractor or "").strip()
 
 
+def _clave(texto: str) -> str:
+    """Solo letras y numeros en mayuscula: 'CASE 110 A - 026' y 'CASE-110A-026' dan lo mismo."""
+    return "".join(ch for ch in (texto or "").upper() if ch.isalnum())
+
+
+_cache_equipos: dict = {"hasta": 0.0, "lista": []}
+
+
+def _equipos_mant() -> list[dict]:
+    """Equipos de Mantenimiento ({tractor_id, horas_actuales...}); cache de 2 min (la
+    telemetria llega cada minuto por tablet). Lista vacia si Mantenimiento no responde."""
+    import time
+    if time.time() < _cache_equipos["hasta"]:
+        return _cache_equipos["lista"]
+    try:
+        r = requests.get(f"{settings.MANTENIMIENTO_API_URL.rstrip('/')}/equipo-horas", timeout=10,
+                         headers=_cabecera_mant())
+        if r.ok:
+            _cache_equipos.update(hasta=time.time() + 120, lista=r.json())
+    except requests.RequestException as e:
+        logger.warning("Mantenimiento no responde: %s", e)
+    return _cache_equipos["lista"]
+
+
+def _equipo_mant(tractor: str) -> tuple[str, Optional[float]]:
+    """(tractor_id como lo tiene Mantenimiento, horas actuales). El nombre del catalogo y
+    el de Mantenimiento no siempre se escriben igual ('CASE 110 A - 026' vs
+    'CASE-110A-026'): se comparan solo letras y numeros. Si no aparece, el id armado."""
+    armado = _id_mantenimiento(tractor)
+    buscado = _clave(armado)
+    for e in _equipos_mant():
+        if _clave(e.get("tractor_id")) == buscado:
+            return e["tractor_id"], e.get("horas_actuales") or 0.0
+    return armado, None
+
+
+def _anotar_horas(tractor_id: str, horas: Optional[float]) -> None:
+    """Deja en la cache las horas que Mantenimiento acaba de confirmar (si no, el
+    siguiente reporte veria horas viejas y abriria otra jornada en vez de extenderla)."""
+    if horas is None:
+        return
+    for e in _cache_equipos["lista"]:
+        if e.get("tractor_id") == tractor_id:
+            e["horas_actuales"] = horas
+
+
 @router.post("/telemetria")
 def telemetria(data: TelemetriaIn, request: Request, db: Session = Depends(get_db),
                user: Usuario = Depends(_kiosko_o_tablet)):
@@ -127,7 +173,7 @@ def telemetria(data: TelemetriaIn, request: Request, db: Session = Depends(get_d
     Mantenimiento. Una tablet (cabecera X-Equipo) reporta SIEMPRE su tractor."""
     ahora = ahora_ecuador().replace(tzinfo=TZ_ECUADOR)
     tablet = tablet_por_llave(db, request.headers.get("X-Equipo"))
-    tractor_id = _id_mantenimiento(tablet.tractor) if tablet else data.tractor_id.strip()
+    tractor_id, horas_reales = _equipo_mant(tablet.tractor if tablet else data.tractor_id.strip())
     # Motor encendido sin nadie logueado en la tablet: Mantenimiento exige texto
     data.operador = (data.operador or "").strip() or "Sin operador"
     if data.fecha:                       # reporte que se envia tarde (cola sin internet)
@@ -135,17 +181,6 @@ def telemetria(data: TelemetriaIn, request: Request, db: Session = Depends(get_d
         if ahora - timedelta(days=7) <= f <= ahora + timedelta(minutes=5):
             ahora = f
     resultado = {}
-    horas_reales = None
-    try:
-        r = requests.get(f"{settings.MANTENIMIENTO_API_URL.rstrip('/')}/equipo-horas", timeout=10,
-                         headers=_cabecera_mant())
-        if r.ok:
-            for e in r.json():
-                if e.get("tractor_id") == tractor_id:
-                    horas_reales = e.get("horas_actuales") or 0.0
-                    break
-    except requests.RequestException as e:
-        logger.warning("Mantenimiento no responde: %s", e)
 
     if data.lat is not None and data.lon is not None:
         try:
@@ -183,6 +218,7 @@ def telemetria(data: TelemetriaIn, request: Request, db: Session = Depends(get_d
         "operador": data.operador, "horometro_inicial": horometro_inicial, "hora_inicio": hora_inicio,
         "fecha_registro": resp["registro_historial"]["fecha_registro"],
         "horometro_final_anterior": resp.get("horometro_final")}
+    _anotar_horas(tractor_id, resp.get("horometro_final"))
     resultado.update({"message": "Telemetria registrada", "horas_actuales": resp.get("horometro_final")})
     return resultado
 

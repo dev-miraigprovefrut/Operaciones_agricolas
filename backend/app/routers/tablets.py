@@ -126,11 +126,12 @@ def _fijar_horometro(tractor: str, horometro: float | None) -> dict:
     if horometro is None:
         return {}
     from . import tractores as tr
-    tractor_id = tr._id_mantenimiento(tractor)
+    tractor_id, _ = tr._equipo_mant(tractor)       # el id tal como lo escribe Mantenimiento
     try:
         tr._mant("POST", "/equipo-horas/registrar-actividad",
                  {"tractor_id": tractor_id, "operador": "Ajuste al montar tablet", "horometro_inicial": round(horometro, 2)})
         tr._sesiones_horometro.pop(tractor_id, None)    # la proxima jornada parte del valor nuevo
+        tr._anotar_horas(tractor_id, round(horometro, 2))
         return {"horometro": round(horometro, 2)}
     except Exception as e:  # noqa: BLE001
         tr.logger.warning("No se pudo fijar el horometro de %s: %s", tractor_id, e)
