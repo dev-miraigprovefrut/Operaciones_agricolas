@@ -37,6 +37,15 @@ const MENU_PERMISOS = [
       { key: 'revisar_actividades', label: 'Revisar horas', icon: 'bx bx-check-square' },
     ]
   },
+  {
+    // Bascula OT: no es una pantalla del modulo; da el "Token para OT" (menu del HUB) y la API de pesaje
+    key: 'pesaje',
+    label: 'Báscula OT',
+    icon: 'bx bxs-truck',
+    hijos: [
+      { key: 'pesaje_cosecha', label: 'Pesaje de cosecha (revisar e ingresar pesos)', icon: 'bx bx-key' },
+    ]
+  },
 ]
 
 function Administracion() {
