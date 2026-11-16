@@ -16,6 +16,7 @@ donde siempre; el registro de tablets es una lista en `parametro` (clave
 'tablets'), como la configuracion de la jornada.
 """
 import hashlib
+import hmac
 from types import SimpleNamespace
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -57,7 +58,7 @@ def _lista(db: Session, para_escribir: bool = False) -> tuple[Parametro, list[di
 
 
 def _guardar(db: Session, p: Parametro, lista: list[dict], usuario: str) -> None:
-    p.valor = {"lista": lista}
+    p.valor = {**(p.valor or {}), "lista": lista}      # conserva el codigo de ajuste
     p.actualizado_por = usuario
     flag_modified(p, "valor")
     db.commit()
@@ -157,11 +158,18 @@ def registrar(body: RegistrarIn, db: Session = Depends(get_db)):
         raise HTTPException(502, "No se pudo leer el catálogo de tractores. Intente de nuevo.")
     if tractor not in nombres:
         raise HTTPException(404, "Ese tractor no está en el catálogo")
-    llave = hash_llave(body.llave)
+    t = _asignar(db, tractor, hash_llave(body.llave), body.descripcion or "Tablet", "tablet")
+    return {"tractor": t["tractor"], "id": t["id"], **_fijar_horometro(tractor, body.horometro)}
+
+
+def _asignar(db: Session, tractor: str, llave: str, descripcion: str, usuario: str) -> dict:
+    """Ata la tablet (hash de su llave) al tractor. Si el tractor ya tiene OTRA tablet
+    activa -> 409 (nadie le quita el tractor a la que funciona); si esta tablet estaba en
+    otro tractor, esa vinculacion se da de baja."""
     p, lista = _lista(db, para_escribir=True)
     ya = next((t for t in lista if t.get("activo") and t.get("tractor") == tractor), None)
     if ya and ya.get("llave_hash") == llave:            # reintento de la misma tablet
-        return {"tractor": ya["tractor"], "id": ya["id"], **_fijar_horometro(tractor, body.horometro)}
+        return ya
     if ya:
         raise HTTPException(409, f"El tractor {tractor} ya tiene una tablet registrada ({ya.get('descripcion')}). "
                                  "Para cambiarla, désela de baja en Catálogos › Operadores › Tablets.")
@@ -170,13 +178,93 @@ def registrar(body: RegistrarIn, db: Session = Depends(get_db)):
         if t.get("activo") and t.get("llave_hash") == llave:
             t.update(activo=False, fecha_baja=ahora, baja_por="cambio de tractor")
     nuevo = {"id": max((t.get("id", 0) for t in lista), default=0) + 1, "tractor": tractor, "llave_hash": llave,
-             "descripcion": (body.descripcion or "Tablet")[:200], "activo": True, "fecha_alta": ahora, "ultimo_uso": ahora}
+             "descripcion": (descripcion or "Tablet")[:200], "activo": True, "fecha_alta": ahora, "ultimo_uso": ahora}
     lista.append(nuevo)
-    _guardar(db, p, lista, "tablet")
-    return {"tractor": tractor, "id": nuevo["id"], **_fijar_horometro(tractor, body.horometro)}
+    _guardar(db, p, lista, usuario)
+    return nuevo
 
 
 @router.get("/yo")
 def yo(db: Session = Depends(get_db), t=Depends(tablet_de)):
     marcar_uso(db, t.id)
-    return {"tractor": t.tractor, "id": t.id}
+    from . import tractores as tr
+    _, horas = tr._equipo_mant(t.tractor)           # horometro actual en Mantenimiento (None si no aparece)
+    return {"tractor": t.tractor, "id": t.id, "horometro": horas}
+
+
+# ------------------------------------------------- ajustes en la tablet (engranaje)
+# Cambiar el equipo o corregir el horometro DESDE la tablet pide un codigo de ajuste que
+# define el administrador en Catalogos > Tablets (asi un tractorista no lo cambia solo).
+# Se guarda solo su hash en el mismo parametro 'tablets'. 5 intentos fallidos -> 15 min.
+_INTENTOS: dict[int, list] = {}
+_MAX_INTENTOS, _BLOQUEO_MIN = 5, 15
+
+
+def _hash_codigo(codigo: str) -> str:
+    return hashlib.sha256(f"oa-ajuste-tablet:{codigo}".encode()).hexdigest()
+
+
+class CodigoAjusteIn(BaseModel):
+    codigo: str = Field(pattern=r"^\d{4,8}$")
+
+
+@router.get("/codigo-ajuste")
+def ver_codigo_ajuste(db: Session = Depends(get_db), _: Usuario = Depends(CATALOGO)):
+    p = _fila(db)
+    v = p.valor or {}
+    return {"configurado": bool(v.get("codigo_ajuste_hash")), "actualizado_por": v.get("codigo_ajuste_por"),
+            "fecha": v.get("codigo_ajuste_fecha")}
+
+
+@router.put("/codigo-ajuste")
+def poner_codigo_ajuste(body: CodigoAjusteIn, db: Session = Depends(get_db), user: Usuario = Depends(CATALOGO)):
+    p = _fila(db, para_escribir=True)
+    p.valor = {**(p.valor or {}), "codigo_ajuste_hash": _hash_codigo(body.codigo), "codigo_ajuste_por": user.username,
+               "codigo_ajuste_fecha": ahora_ecuador().isoformat(timespec="seconds")}
+    p.actualizado_por = user.username
+    flag_modified(p, "valor")
+    db.commit()
+    _INTENTOS.clear()
+    return {"configurado": True}
+
+
+class AjustarIn(BaseModel):
+    codigo: str = Field(pattern=r"^\d{4,8}$")
+    tractor: str | None = Field(None, min_length=3, max_length=150)     # cambiar de equipo
+    horometro: float | None = Field(None, ge=0, le=200000)            # corregir el horometro
+
+
+def _verificar_codigo(db: Session, id_tablet: int, codigo: str) -> None:
+    import time
+    ahora = time.time()
+    fallos = [f for f in _INTENTOS.get(id_tablet, []) if ahora - f < _BLOQUEO_MIN * 60]
+    if len(fallos) >= _MAX_INTENTOS:
+        raise HTTPException(429, f"Demasiados intentos. Espere {_BLOQUEO_MIN} minutos.")
+    guardado = (_fila(db).valor or {}).get("codigo_ajuste_hash")
+    if not guardado:
+        raise HTTPException(409, "Aún no hay código de ajuste. Pídale al administrador que lo cree en Catálogos › Tablets.")
+    if not hmac.compare_digest(guardado, _hash_codigo(codigo)):
+        _INTENTOS[id_tablet] = fallos + [ahora]
+        raise HTTPException(403, "Código incorrecto")
+    _INTENTOS.pop(id_tablet, None)
+
+
+@router.post("/ajustar")
+def ajustar(body: AjustarIn, request: Request, db: Session = Depends(get_db), t=Depends(tablet_de)):
+    """Engranaje de la tablet: con el codigo de ajuste, cambia su equipo y/o fija el horometro."""
+    _verificar_codigo(db, t.id, body.codigo)
+    if not body.tractor and body.horometro is None:     # solo validar el codigo (abrir el panel)
+        return {"tractor": t.tractor, "id": t.id}
+    tractor, id_tablet = t.tractor, t.id
+    nuevo = (body.tractor or "").strip()
+    if nuevo and nuevo != t.tractor:
+        from ..clients import equipos
+        try:
+            nombres = {x["nombre"] for x in equipos.tractores()}
+        except Exception:  # noqa: BLE001
+            raise HTTPException(502, "No se pudo leer el catálogo de tractores. Intente de nuevo.")
+        if nuevo not in nombres:
+            raise HTTPException(404, "Ese tractor no está en el catálogo")
+        a = _asignar(db, nuevo, hash_llave(request.headers.get(CABECERA)), t.descripcion or "Tablet", "tablet (ajuste)")
+        tractor, id_tablet = a["tractor"], a["id"]
+    return {"tractor": tractor, "id": id_tablet, **_fijar_horometro(tractor, body.horometro)}

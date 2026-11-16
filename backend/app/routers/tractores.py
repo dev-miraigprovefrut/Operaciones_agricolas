@@ -187,6 +187,10 @@ def telemetria(data: TelemetriaIn, request: Request, db: Session = Depends(get_d
         if ahora - timedelta(days=7) <= f <= ahora + timedelta(minutes=5):
             ahora = f
     resultado = {}
+    # Ubicacion y horas SOLO con el cargador conectado (motor encendido): un reporte sin horas
+    # (tablet sin cable) no se publica. Las tablets con la app 1.1 todavia los mandan.
+    if data.horas_delta <= 0:
+        return {"message": "Sin cargador: no se registra ubicación ni horas"}
 
     if data.lat is not None and data.lon is not None:
         try:
@@ -196,11 +200,6 @@ def telemetria(data: TelemetriaIn, request: Request, db: Session = Depends(get_d
         except HTTPException as e:
             resultado["gps_error"] = e.detail
             logger.warning("GPS de %s no se publico en Mantenimiento: %s", tractor_id, e.detail)
-
-    # Solo ubicacion (motor apagado / tablet sin cargar): no se registran horas
-    if data.horas_delta <= 0:
-        resultado["message"] = "Ubicacion registrada" if "gps_error" not in resultado else "Ubicacion no publicada"
-        return resultado
 
     sesion = _sesiones_horometro.get(tractor_id)
     mismo_dia = sesion and sesion.get("hora_inicio", "")[:10] == ahora.date().isoformat()

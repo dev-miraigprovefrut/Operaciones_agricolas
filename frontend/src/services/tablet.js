@@ -67,6 +67,46 @@ export async function vincularTablet(tractor, horometro) {
   return d
 }
 
+// --------------------------------------------- horometro y ajustes (engranaje)
+const CLAVE_HOROMETRO = 'oa_tablet_horometro'
+
+/** Horometro actual del equipo (Mantenimiento). Sin señal: el ultimo que se leyo. */
+export async function horometroTablet() {
+  const guardado = (() => { try { return JSON.parse(localStorage.getItem(CLAVE_HOROMETRO) || 'null') } catch { return null } })()
+  if (!esApp() || !tabletVinculada() || navigator.onLine === false) return guardado
+  try {
+    const r = await fetch(`${API_URL}/api/tablets/yo`, { headers: cabeceraEquipo() })
+    if (!r.ok) return guardado
+    const d = await r.json()
+    if (d.horometro == null) return guardado
+    const v = { horas: Number(d.horometro), fecha: new Date().toISOString() }
+    localStorage.setItem(CLAVE_HOROMETRO, JSON.stringify(v))
+    return v
+  } catch { return guardado }
+}
+
+/**
+ * Engranaje: con el codigo de ajuste cambia el equipo y/o fija el horometro.
+ * Sin cambios solo valida el codigo (para abrir el panel). Lanza Error con el mensaje.
+ */
+export async function ajustarTablet(codigo, { tractor, horometro } = {}) {
+  let res
+  try {
+    res = await fetch(`${API_URL}/api/tablets/ajustar`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...cabeceraEquipo() },
+      body: JSON.stringify({ codigo, tractor: tractor || null, horometro: horometro ?? null })
+    })
+  } catch { throw new Error('Sin conexión: los ajustes necesitan internet') }
+  const d = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(typeof d.detail === 'string' ? d.detail : 'Código de 4 a 8 dígitos')
+  if (d.tractor) localStorage.setItem(CLAVE_TABLET, JSON.stringify({ tractor: d.tractor, id: d.id }))
+  if (tractor) localStorage.removeItem(CLAVE_HOROMETRO)      // el horometro guardado era del equipo anterior
+  if (horometro != null && !d.horometro_error) {
+    localStorage.setItem(CLAVE_HOROMETRO, JSON.stringify({ horas: Number(horometro), fecha: new Date().toISOString() }))
+  }
+  return d
+}
+
 // ------------------------------------------------------------- telemetria
 const leerCola = () => { try { return JSON.parse(localStorage.getItem(CLAVE_COLA) || '[]') } catch { return [] } }
 const guardarCola = c => localStorage.setItem(CLAVE_COLA, JSON.stringify(c.slice(-MAX_COLA)))
@@ -153,7 +193,6 @@ async function registrarHoras(ahora) {
  * con el evento de carga del navegador.
  */
 let revisando = false
-let ultimaUbicacion = 0
 async function revisarCarga() {
   if (revisando) return
   revisando = true
@@ -169,16 +208,9 @@ async function revisarCarga() {
     } else if (!cargando && contando) {                // se desconecto: cierra el tramo
       await registrarHoras(ahora)
       localStorage.removeItem(CLAVE_CONTANDO)
-    } else if (!cargando && ahora - ultimaUbicacion >= INTERVALO_MS) {
-      // Sin cargar (motor apagado o tablet sin cable): igual se publica DONDE esta el tractor
-      ultimaUbicacion = ahora
-      const pos = await posicion()
-      if (pos) {
-        const cola = leerCola()
-        cola.push({ horas_delta: 0, lat: pos.lat, lon: pos.lon, fecha: ahoraLocal(), operador: localStorage.getItem('usuario_nombre') || null })
-        guardarCola(cola)
-      }
     }
+    // Sin cargador (motor apagado / tablet sin cable) NO se envia nada: ni horas ni ubicacion
+    // (decision del usuario 16-nov-2026: ubicacion y horometro solo con el cargador conectado).
   } finally { revisando = false }
 }
 

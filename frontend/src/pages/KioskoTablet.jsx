@@ -5,7 +5,8 @@ import './KioskoTablet.css'
 import { addToQueue, processQueue, getPendingCount, getPendingItems, fetchWithOffline, fetchConTimeout, cacheData, getCachedData } from '../services/syncQueue'
 import { nuevoClienteId, ahoraLocal, guardarLocal, mezclar, urlRegistro, accionDe, claveRegistro } from '../services/registrosLocales'
 import { llaveDispositivo, nombreDispositivo, guardarIngresoOffline, hayIngresoOffline, ingresarOffline, nombreGuardado } from '../services/dispositivo'
-import { tractorFijo, ubicacionTablet, guardarSesionTablet, revisarActualizacion, VERSION_APP_NOMBRE } from '../services/tablet'
+import { tractorFijo, ubicacionTablet, guardarSesionTablet, revisarActualizacion, VERSION_APP_NOMBRE,
+  horometroTablet, ajustarTablet, tractoresCatalogo } from '../services/tablet'
 import useOnlineStatus from '../services/useOnlineStatus'
 
 /**
@@ -125,14 +126,149 @@ function Teclado({ onDigito, onBorrar, onOk, ocupado }) {
   )
 }
 
+const fmtHoras = h => (h == null || Number.isNaN(Number(h)) ? '—' : Number(h).toFixed(2))
+
+/** Equipo de la tablet y su horometro, con el engranaje de ajustes. */
+function BarraEquipo({ tractor, horometro, onAjustes }) {
+  if (!tractor) return null
+  return (
+    <div className="k-equipo">
+      <div className="k-equipo-txt">
+        <span className="k-equipo-nombre"><i className="bx bxs-truck"></i> {tractor}</span>
+        <span className="k-equipo-horas">Horómetro: <b>{fmtHoras(horometro?.horas)}</b> h</span>
+      </div>
+      <button className="k-engranaje" onClick={onAjustes} aria-label="Ajustes del equipo" title="Ajustes del equipo">
+        <i className="bx bx-cog"></i>
+      </button>
+    </div>
+  )
+}
+
+/**
+ * Engranaje: con el codigo de ajuste (Catalogos > Tablets) se cambia el equipo de la
+ * tablet o se corrige su horometro. Necesita internet.
+ */
+function PanelAjustes({ tractor, horometro, onCerrar, onCambio }) {
+  const [paso, setPaso] = useState('codigo')          // codigo | menu | horas | equipo
+  const [codigo, setCodigo] = useState('')
+  const [horas, setHoras] = useState('')
+  const [tractores, setTractores] = useState([])
+  const [busqueda, setBusqueda] = useState('')
+  const [marcado, setMarcado] = useState(0)
+  const [msg, setMsg] = useState('')
+  const [ocupado, setOcupado] = useState(false)
+
+  const ejecutar = async (cambios, siguiente) => {
+    setOcupado(true); setMsg('')
+    try {
+      const d = await ajustarTablet(codigo, cambios)
+      if (d.horometro_error) setMsg(d.horometro_error)
+      siguiente(d)
+    } catch (e) { setMsg(e.message) } finally { setOcupado(false) }
+  }
+  const validarCodigo = () => {
+    if (codigo.length < 4) return setMsg('El código tiene de 4 a 8 dígitos')
+    ejecutar({}, () => setPaso('menu'))
+  }
+  const guardarHoras = () => {
+    const h = Number(horas)
+    if (!horas || Number.isNaN(h) || h < 0) return setMsg('Escriba las horas que marca el horómetro')
+    ejecutar({ horometro: h }, () => { onCambio({ horometro: h }); setPaso('menu') })
+  }
+  const abrirEquipos = async () => {
+    setPaso('equipo'); setMsg(''); setBusqueda(''); setMarcado(0)
+    try { setTractores(await tractoresCatalogo()) } catch (e) { setMsg(e.message) }
+  }
+  const filtrados = filtrar(tractores, busqueda.replace(/-/g, ' '), t => t.replace(/-/g, ' '))
+  const elegirEquipo = t => {
+    if (!t || t === tractor) return setMsg(t ? 'La tablet ya está en ese equipo' : 'Elija un equipo')
+    ejecutar({ tractor: t }, d => onCambio({ tractor: d.tractor }))
+  }
+
+  // Dentro de .kiosko (no portal): hereda el modo claro/oscuro de la tablet
+  return (
+    <div className="k-ajustes-fondo">
+      <div className={`k-tarjeta k-ajustes${paso === 'horas' || paso === 'equipo' ? ' con-letras' : ''}`}>
+        <div className="k-tarjeta-cab">
+          <h1><i className="bx bx-cog"></i> Ajustes del equipo</h1>
+          <p>{paso === 'codigo' ? 'Código de ajuste del supervisor' : tractor}</p>
+        </div>
+        <div className="k-tarjeta-cuerpo">
+          {paso === 'codigo' && (
+            <>
+              <div className="k-campo-num activo">{'•'.repeat(codigo.length) || ' '}</div>
+              <Teclado ocupado={ocupado} onOk={validarCodigo}
+                onDigito={n => { setMsg(''); setCodigo(c => (c.length < 8 ? c + n : c)) }}
+                onBorrar={() => { setMsg(''); setCodigo(c => c.slice(0, -1)) }} />
+            </>
+          )}
+          {paso === 'menu' && (
+            <>
+              <div className="k-ajustes-dato">Horómetro actual: <b>{fmtHoras(horometro?.horas)} h</b></div>
+              <button className="k-btn" style={{ width: '100%' }}
+                onClick={() => { setHoras(horometro?.horas != null ? Number(horometro.horas).toFixed(2) : ''); setMsg(''); setPaso('horas') }}>
+                <i className="bx bx-tachometer"></i> Corregir horómetro
+              </button>
+              <button className="k-btn suave" style={{ width: '100%' }} onClick={abrirEquipos}>
+                <i className="bx bx-transfer"></i> Cambiar de equipo
+              </button>
+            </>
+          )}
+          {paso === 'horas' && (
+            <>
+              <span className="k-etiqueta">HORAS QUE MARCA EL HORÓMETRO</span>
+              <div className="k-campo-num activo k-ajustes-horas">{horas || ' '}</div>
+              <TecladoFormulario
+                onLetra={l => { if (/[0-9.]/.test(l)) setHoras(h => (l === '.' && h.includes('.') ? h : (h + l).slice(0, 10))); setMsg('') }}
+                onBorrar={() => setHoras(h => h.slice(0, -1))}
+                onArriba={() => {}} onAbajo={() => {}} onAnterior={() => setPaso('menu')} onSiguiente={() => {}}
+                onOk={guardarHoras} />
+              <button className="k-btn" style={{ width: '100%' }} onClick={guardarHoras} disabled={ocupado}>
+                {ocupado ? 'Guardando...' : 'Guardar horómetro'}
+              </button>
+            </>
+          )}
+          {paso === 'equipo' && (
+            <>
+              <div className="k-campo-num activo k-campo-texto">{busqueda || <span className="k-placeholder">Buscar equipo...</span>}</div>
+              <div className="k-ajustes-lista">
+                {!tractores.length && !msg && <p className="k-msg">Cargando catálogo...</p>}
+                {filtrados.map((t, i) => (
+                  <button key={t} className={`k-quien-nombre${i === marcado ? ' marcado' : ''}${t === tractor ? ' actual' : ''}`}
+                    ref={el => { if (i === marcado && el) el.scrollIntoView({ block: 'nearest' }) }}
+                    onClick={() => elegirEquipo(t)} disabled={ocupado}>
+                    <i className="bx bxs-truck"></i> {t}{t === tractor ? ' (actual)' : ''}
+                  </button>
+                ))}
+              </div>
+              <TecladoFormulario
+                onLetra={l => { setBusqueda(b => b + l); setMarcado(0); setMsg('') }}
+                onBorrar={() => { setBusqueda(b => b.slice(0, -1)); setMarcado(0) }}
+                onArriba={() => setMarcado(m => Math.max(0, m - 1))}
+                onAbajo={() => setMarcado(m => Math.min(filtrados.length - 1, m + 1))}
+                onAnterior={() => setPaso('menu')} onSiguiente={() => {}}
+                onOk={() => elegirEquipo(filtrados[marcado])} />
+            </>
+          )}
+          <div className="k-msg">{msg}</div>
+          <button className="k-btn gris" style={{ width: '100%' }} onClick={paso === 'horas' || paso === 'equipo' ? () => { setPaso('menu'); setMsg('') } : onCerrar}>
+            {paso === 'horas' || paso === 'equipo' ? 'Volver' : 'Cerrar'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 /** Inicio: los tractoristas que ya entraron en esta tablet (tocan su nombre y ponen su codigo). */
-function PantallaQuien({ onElegir, onOtro }) {
+function PantallaQuien({ onElegir, onOtro, barra }) {
   const lista = conocidos()
   return (
     <div className="k-centro">
       <div className="k-tarjeta k-quien">
         <div className="k-tarjeta-cab"><h1>Operaciones Agrícolas</h1><p>¿Quién maneja hoy?</p></div>
         <div className="k-tarjeta-cuerpo">
+          {barra}
           <div className="k-quien-lista">
             {lista.map(c => (
               <button key={c.username} className="k-quien-nombre" onClick={() => onElegir(c)}>
@@ -168,7 +304,7 @@ function TecladoLetras({ onLetra, onBorrar, onSiguiente }) {
 }
 
 /** Primera vez en esta tablet (o crear codigo nuevo): usuario nombre.apellido + cedula. */
-function PantallaCedula({ onListo, onVolver }) {
+function PantallaCedula({ onListo, onVolver, barra }) {
   const [username, setUsername] = useState('')
   const [cedula, setCedula] = useState('')
   const [campo, setCampo] = useState('usuario')   // que teclado se muestra
@@ -186,6 +322,7 @@ function PantallaCedula({ onListo, onVolver }) {
       <div className="k-tarjeta">
         <div className="k-tarjeta-cab"><h1>Operaciones Agrícolas</h1><p>Acceso Tractoristas</p></div>
         <div className="k-tarjeta-cuerpo">
+          {barra}
           <label className="k-etiqueta" htmlFor="kiosko-usuario">USUARIO</label>
           {/* inputMode none: escribe con el teclado de la pantalla (o uno fisico), sin el de Android encima */}
           <input id="kiosko-usuario" className={`k-campo-num k-campo-texto${campo === 'usuario' ? ' activo' : ''}`}
@@ -779,7 +916,9 @@ function Trabajo({ usuario, tractor, onFinJornada, tema }) {
 
 // ======================================================================
 function KioskoTablet({ tema }) {
-  const tractor = tractorFijo()
+  const [tractor, setTractor] = useState(tractorFijo())
+  const [horometro, setHorometro] = useState(null)
+  const [ajustes, setAjustes] = useState(false)
   const [usuario, setUsuario] = useState(null)
   // quien (lista de los que ya entraron) | cedula (usuario + cedula) | codigo | trabajo
   const [pantalla, setPantalla] = useState(conocidos().length ? 'quien' : 'cedula')
@@ -818,6 +957,21 @@ function KioskoTablet({ tema }) {
     setUsuario(null); setPantalla(conocidos().length ? 'quien' : 'cedula')
   }
 
+  // Horometro del equipo en la pantalla de ingreso: al entrar a ella y cada 2 min
+  const enIngreso = pantalla === 'quien' || pantalla === 'cedula'
+  useEffect(() => {
+    if (!enIngreso) return
+    const leerHoras = () => horometroTablet().then(setHorometro)
+    leerHoras()
+    const t = setInterval(leerHoras, 120000)
+    return () => clearInterval(t)
+  }, [enIngreso, tractor])
+  const alCambiar = ({ tractor: nuevo, horometro: h }) => {
+    if (nuevo) { setTractor(nuevo); setHorometro(null); horometroTablet().then(setHorometro) }
+    if (h != null) setHorometro({ horas: h, fecha: new Date().toISOString() })
+  }
+  const barra = <BarraEquipo tractor={tractor} horometro={horometro} onAjustes={() => setAjustes(true)} />
+
   return (
     <div className="kiosko">
       {nueva && pantalla !== 'trabajo' && (
@@ -827,9 +981,10 @@ function KioskoTablet({ tema }) {
           <button className="k-btn" onClick={() => { window.location.href = nueva.url }}>Actualizar</button>
         </div>
       )}
-      {pantalla === 'quien' && <PantallaQuien onElegir={elegir} onOtro={() => setPantalla('cedula')} />}
+      {pantalla === 'quien' && <PantallaQuien onElegir={elegir} onOtro={() => setPantalla('cedula')} barra={barra} />}
       {pantalla === 'cedula' && <PantallaCedula onListo={u => { setUsuario(u); setPantalla('codigo') }}
-        onVolver={conocidos().length ? () => setPantalla('quien') : null} />}
+        onVolver={conocidos().length ? () => setPantalla('quien') : null} barra={barra} />}
+      {ajustes && enIngreso && <PanelAjustes tractor={tractor} horometro={horometro} onCerrar={() => setAjustes(false)} onCambio={alCambiar} />}
       {pantalla === 'codigo' && usuario && <PantallaCodigo usuario={usuario} onEntrar={u => { setUsuario(u); setPantalla('trabajo') }} onCambiarUsuario={salir} />}
       {pantalla === 'trabajo' && usuario && <Trabajo usuario={usuario} tractor={tractor} onFinJornada={salir} tema={tema} />}
       {pantalla !== 'trabajo' && <BotonModoColor {...tema} />}
