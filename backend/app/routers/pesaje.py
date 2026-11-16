@@ -12,22 +12,145 @@ deshacerlo si luego se elimina un peso). Los reportes muestran el peso de OT
 (COALESCE con el de Informix) y la sincronizacion con Informix no toca los
 productos ni camiones pesados por OT.
 """
+import hashlib
+import hmac
 import logging
-from datetime import datetime
+import secrets
+from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import text
+from sqlalchemy import select, text
 from sqlalchemy.orm import Session
+from sqlalchemy.orm.attributes import flag_modified
 
-from ..auth import Usuario, requiere
+from ..auth import Usuario, get_current_user
+from ..comun import ahora_ecuador
 from ..database import get_db
+from ..models import Parametro
 from .tractores import _fecha_evento
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/pesaje", tags=["pesaje"])
-PESAJE = requiere("pesaje_cosecha")
+
+# ------------------------------------------------------------ token para OT
+# El programa de bascula OT no tiene sesion del HUB: una PERSONA con la pestana
+# pesaje_cosecha (ej. el responsable de bascula) entra a MirAI y genera un token de
+# turno (12 h) que pega en OT. Cada pesada queda a SU nombre. Un token activo por
+# persona (generar otro revoca el anterior); se puede revocar. Solo abre /api/pesaje.
+# Se guarda solo el SHA-256, en `parametro` (clave tokens_pesaje), sin tabla nueva.
+# El permiso se toma al generarlo: si a alguien le quitan la pestana, su token vale
+# hasta que vence (max. 12 h) salvo que se revoque (corta al instante).
+PREFIJO_TOKEN = "ot_"
+HORAS_TOKEN = 12
+CLAVE_TOKENS = "tokens_pesaje"
+
+
+def _hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _tokens(db: Session, escribir: bool = False) -> tuple[Parametro, list[dict]]:
+    q = select(Parametro).where(Parametro.clave == CLAVE_TOKENS)
+    p = db.scalar(q.with_for_update() if escribir else q)
+    if p is None:
+        p = Parametro(clave=CLAVE_TOKENS, valor={"lista": []})
+        db.add(p)
+        db.flush()
+    return p, list((p.valor or {}).get("lista", []))
+
+
+def _guardar_tokens(db: Session, p: Parametro, lista: list[dict], usuario: str) -> None:
+    ahora = ahora_ecuador()
+    # se conservan 30 dias de historial (vencidos/revocados) para auditoria
+    lista = [t for t in lista if datetime.fromisoformat(t["expira"]) > ahora - timedelta(days=30)]
+    p.valor = {**(p.valor or {}), "lista": lista}
+    p.actualizado_por = usuario
+    flag_modified(p, "valor")
+    db.commit()
+
+
+def _vigente(t: dict) -> bool:
+    return not t.get("revocado") and datetime.fromisoformat(t["expira"]) > ahora_ecuador()
+
+
+def _usuario_token(db: Session, token: str) -> Usuario:
+    h = _hash_token(token)
+    _, lista = _tokens(db)
+    t = next((x for x in lista if hmac.compare_digest(x.get("hash", ""), h)), None)
+    if not t or not _vigente(t):
+        raise HTTPException(401, "Token de OT vencido, revocado o inválido: genere uno nuevo en MirAI (Pesaje › Token para OT)")
+    return Usuario(username=t["username"], tipo="token_ot", nombre=f"{t.get('nombre') or t['username']} (OT)",
+                   pestanas=["pesaje_cosecha"], id_persona=t.get("id_persona"))
+
+
+def PESAJE(request: Request, db: Session = Depends(get_db)) -> Usuario:
+    """Acceso a pesaje: token de OT (Bearer ot_...) o sesion del HUB con la pestana pesaje_cosecha."""
+    auth = request.headers.get("authorization", "")
+    if auth[:7].lower() == "bearer " and auth[7:].strip().startswith(PREFIJO_TOKEN):
+        return _usuario_token(db, auth[7:].strip())
+    user = get_current_user(request, db)
+    if not user.puede("pesaje_cosecha"):
+        raise HTTPException(403, "No autorizado")
+    return user
+
+
+def _solo_sesion(user: Usuario = Depends(PESAJE)) -> Usuario:
+    """Generar/ver/revocar tokens: solo con la sesion de la persona, nunca con otro token."""
+    if user.tipo != "hub":
+        raise HTTPException(403, "Los tokens se administran entrando a MirAI con su usuario")
+    return user
+
+
+def _publico(t: dict) -> dict:
+    return {k: t.get(k) for k in ("id", "username", "nombre", "creado", "expira", "revocado", "revocado_por")} | {
+        "vigente": _vigente(t), "termina_en": t.get("final")}     # ultimos 4 caracteres, para reconocerlo
+
+
+@router.post("/token")
+def generar_token(db: Session = Depends(get_db), user: Usuario = Depends(_solo_sesion)):
+    """Genera el token de turno para el programa OT. Se muestra UNA sola vez."""
+    token = PREFIJO_TOKEN + secrets.token_urlsafe(32)
+    ahora = ahora_ecuador()
+    p, lista = _tokens(db, escribir=True)
+    for t in lista:                                   # un token activo por persona
+        if t["username"] == user.username and _vigente(t):
+            t.update(revocado=ahora.isoformat(timespec="seconds"), revocado_por="nuevo token")
+    nuevo = {"id": max((t.get("id", 0) for t in lista), default=0) + 1, "hash": _hash_token(token),
+             "final": token[-4:], "username": user.username, "nombre": user.nombre, "id_persona": user.id_persona,
+             "creado": ahora.isoformat(timespec="seconds"),
+             "expira": (ahora + timedelta(hours=HORAS_TOKEN)).isoformat(timespec="seconds")}
+    lista.append(nuevo)
+    _guardar_tokens(db, p, lista, user.username)
+    logger.info("token de pesaje OT generado para %s (vence %s)", user.username, nuevo["expira"])
+    return {"token": token, "expira": nuevo["expira"], "horas": HORAS_TOKEN, "nombre": user.nombre}
+
+
+@router.get("/token")
+def ver_tokens(db: Session = Depends(get_db), user: Usuario = Depends(_solo_sesion)):
+    """Mis tokens (los admins del modulo ven los de todos). Nunca devuelve el token."""
+    _, lista = _tokens(db)
+    vis = [t for t in lista if user.es_admin or t["username"] == user.username]
+    return sorted((_publico(t) for t in vis), key=lambda t: (t["creado"], t["id"]), reverse=True)[:50]
+
+
+@router.delete("/token/{id_token}")
+def revocar_token(id_token: int, db: Session = Depends(get_db), user: Usuario = Depends(_solo_sesion)):
+    p, lista = _tokens(db, escribir=True)
+    t = next((x for x in lista if x.get("id") == id_token), None)
+    if not t or not (user.es_admin or t["username"] == user.username):
+        raise HTTPException(404, "Token no encontrado")
+    if _vigente(t):
+        t.update(revocado=ahora_ecuador().isoformat(timespec="seconds"), revocado_por=user.username)
+        _guardar_tokens(db, p, lista, user.username)
+    return _publico(t)
+
+
+@router.get("/yo")
+def quien_soy(user: Usuario = Depends(PESAJE)):
+    """Para que OT compruebe el token: a nombre de quien quedan las pesadas."""
+    return {"username": user.username, "nombre": user.nombre, "via": "token_ot" if user.tipo == "token_ot" else "sesion"}
 
 _SELECT = """
     SELECT c.id_cosecha, c.numeracion, c.lote, c.orden_cultivo, c.producto, c.variedad, c.ubicacion AS hacienda,
