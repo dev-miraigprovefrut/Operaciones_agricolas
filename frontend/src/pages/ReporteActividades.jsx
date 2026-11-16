@@ -49,15 +49,21 @@ function ReporteActividades() {
   const [cfgJornada, setCfgJornada] = useState(CONFIG_JORNADA_DEFECTO)
   // Jornadas marcadas "sin almuerzo" ("operador|AAAA-MM-DD"): no se descuenta el almuerzo fijo
   const [sinAlmuerzo, setSinAlmuerzo] = useState(new Set())
-  const marcarSinAlmuerzo = async (operador, dia, valor) => {
+  const pedidoAlmuerzo = useRef(0)
+  const marcarSinAlmuerzo = async (op, dia, valor) => {
+    // el servidor guarda el nombre sin espacios sobrantes: la clave debe ser igual o el check se desmarca solo
+    const operador = (op || '').trim()
     const clave = `${operador}|${dia}`
+    const n = ++pedidoAlmuerzo.current
     setSinAlmuerzo(prev => { const n = new Set(prev); valor ? n.add(clave) : n.delete(clave); return n })
     try {
       const res = await fetch(`${API_URL}/api/parametros/sin-almuerzo`, {
         method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ operador, dia, sin_almuerzo: valor })
       })
       if (!res.ok) throw new Error((await res.json().catch(() => ({}))).detail || 'No se pudo guardar')
-      setSinAlmuerzo(new Set(await res.json()))
+      const lista = await res.json()
+      // solo la respuesta del ultimo clic: una mas vieja no deshace lo que se marco despues
+      if (n === pedidoAlmuerzo.current) setSinAlmuerzo(new Set(lista))
     } catch (e) {
       setSinAlmuerzo(prev => { const n = new Set(prev); valor ? n.delete(clave) : n.add(clave); return n })
       Swal.fire({ icon: 'error', title: 'Sin almuerzo', text: e.message })
@@ -664,7 +670,8 @@ function ReporteActividades() {
     getReporteFiltrados().forEach(r => { const op = r.usuario || 'Sin operador'; (porOperador[op] ||= []).push(r) })
     return Object.entries(porOperador).sort((a, b) => a[0].localeCompare(b[0])).map(([operador, regs]) => {
       // De la mas reciente a la mas antigua (jornadas y actividades dentro de cada una)
-      const diasSinAlmuerzo = new Set([...sinAlmuerzo].filter(k => k.startsWith(`${operador}|`)).map(k => k.slice(operador.length + 1)))
+      const opClave = operador.trim()
+      const diasSinAlmuerzo = new Set([...sinAlmuerzo].filter(k => k.startsWith(`${opClave}|`)).map(k => k.slice(opClave.length + 1)))
       const jornadas = armarJornadas(regs, { ...cfgJornada, diasSinAlmuerzo }).filter(j =>
         (!reporteFechaDesde || j.dia >= reporteFechaDesde) && (!reporteFechaHasta || j.dia <= reporteFechaHasta))
         .reverse().map(j => ({ ...j, regs: [...j.regs].reverse() }))

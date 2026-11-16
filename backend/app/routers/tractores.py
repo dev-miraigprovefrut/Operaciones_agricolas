@@ -1077,6 +1077,9 @@ def marcar_sin_almuerzo(body: SinAlmuerzoIn, db: Session = Depends(get_db),
                         user: Usuario = Depends(requiere("revisar_actividades"))):
     clave = f"{body.operador.strip()}|{body.dia.isoformat()}"
     p = _parametro(db, "jornadas_sin_almuerzo")
+    if p is not None:
+        # dos clics seguidos (otra jornada) no se pisan: el segundo espera al primero
+        db.refresh(p, with_for_update=True)
     if p is None:
         p = Parametro(clave="jornadas_sin_almuerzo", valor={"lista": []})
         db.add(p)

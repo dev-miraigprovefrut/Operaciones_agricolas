@@ -54,7 +54,7 @@ def _out(f: FichaAplicacion) -> dict:
         "bomba": f.bomba, "cod_mapli": f.cod_mapli,
         "metodo": {sync.METODO_DRON: "DRON", sync.METODO_TRACTOR: "ALTO DESPEJE ASPERSIÓN"}.get(f.cod_mapli or 0),
         "temperatura": _f(f.temperatura), "velocidad_viento": _f(f.velocidad_viento), "num_bombas": _f(f.num_bombas),
-        "aplicador": f.aplicador, "fecha_aplicacion": f.fecha_aplicacion,
+        "aplicador": f.aplicador, "usuario_inicio": f.usuario_inicio, "fecha_aplicacion": f.fecha_aplicacion,
         "hora_inicio": f.hora_inicio.strftime("%H:%M") if f.hora_inicio else None,
         "hora_fin": f.hora_fin.strftime("%H:%M") if f.hora_fin else None,
         "envio_erp": f.envio_erp, "envio_error": f.envio_error, "fecha_envio": f.fecha_envio,

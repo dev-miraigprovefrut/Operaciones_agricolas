@@ -39,6 +39,23 @@ function imprimir(fichas, titulo) {
   w.onload = () => { w.contentWindow.print(); setTimeout(() => w.remove(), 1000) }
 }
 
+// Filtros de la lista: valor de cada ficha para cada filtro
+const actividadDe = (f) => f.cod_acamp === 83 ? 'Herbicida' : 'Fitosanitaria'
+const metodoDe = (f) => f.equipo === 'Drones' ? 'Dron' : f.equipo === 'Tractores' ? 'Tractor' : (f.estado_aplicacion === 'PENDIENTE' ? 'Sin asignar' : '')
+const operadorDe = (f) => f.aplicador || f.usuario_inicio || ''
+const CAMPOS_FILTRO = {
+  empresa: (f) => f.proyecto || '',
+  metodo: metodoDe,
+  equipo: (f) => f.tractor || '',
+  lote: (f) => f.lote || '',
+  operador: operadorDe,
+  actividad: actividadDe,
+}
+const ETIQUETAS_FILTRO = {
+  empresa: 'Todas las empresas', metodo: 'Dron y tractor', equipo: 'Todos los equipos', lote: 'Todos los lotes',
+  operador: 'Todos los operadores', actividad: 'Todas las actividades',
+}
+
 export default function FichasAplicacion() {
   const actual = semanaIso()
   const [anio, setAnio] = useState(actual.anio)
@@ -48,6 +65,7 @@ export default function FichasAplicacion() {
   const [busqueda, setBusqueda] = useState('')
   const [filtro, setFiltro] = useState('')       // '' | PENDIENTE | EN_CURSO | POR | ENVIADO | ERROR
   const [filtroErp, setFiltroErp] = useState('') // estado en Jireh: '' | PE | AU | CN
+  const [filtros, setFiltros] = useState({})     // {empresa, metodo, equipo, lote, operador, actividad}
   const [abiertaId, setAbiertaId] = useState(null)
   const [ocupado, setOcupado] = useState(false)
   const [actualizando, setActualizando] = useState(false)
@@ -130,11 +148,16 @@ export default function FichasAplicacion() {
     : f.envio_erp === 'ENVIADO' ? 'ENVIADO' : f.envio_erp === 'ERROR' ? 'ERROR' : 'POR'
   const visibles = useMemo(() => fichas.filter(f => {
     if (filtroErp && f.estado_erp !== filtroErp) return false
+    for (const [k, fn] of Object.entries(CAMPOS_FILTRO)) if (filtros[k] && fn(f) !== filtros[k]) return false
     if (filtro && grupo(f) !== filtro) return false
     if (!busqueda) return true
     const b = busqueda.toLowerCase()
     return [f.ocult, f.lote, f.hacienda, f.cultivo, f.tractor, f.aplicador].some(v => String(v || '').toLowerCase().includes(b))
-  }), [fichas, filtro, filtroErp, busqueda])  // eslint-disable-line react-hooks/exhaustive-deps
+  }), [fichas, filtro, filtroErp, busqueda, filtros])  // eslint-disable-line react-hooks/exhaustive-deps
+  // opciones de cada filtro con lo que hay en la semana
+  const opcionesFiltro = useMemo(() => Object.fromEntries(Object.entries(CAMPOS_FILTRO).map(([k, fn]) =>
+    [k, [...new Set(fichas.map(fn).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), 'es', { numeric: true }))])), [fichas])
+  const hayFiltros = Object.values(filtros).some(Boolean)
   const cuenta = (g) => fichas.filter(f => grupo(f) === g).length
   const abierta = fichas.find(f => f.id === abiertaId) || null
   const cerrar = useCallback(() => setAbiertaId(null), [])
@@ -168,6 +191,23 @@ export default function FichasAplicacion() {
         <input className="form-control" placeholder="Buscar orden, lote, hacienda, equipo…" value={busqueda} onChange={e => setBusqueda(e.target.value)} style={{flex: 1, minWidth: '200px'}} />
       </div>
 
+      {/* Filtros: empresa, metodo (dron/tractor), equipo, lote, operador, actividad */}
+      <div style={{display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.6rem'}}>
+        {Object.keys(CAMPOS_FILTRO).map(k => (
+          <select key={k} className="form-control" value={filtros[k] || ''} onChange={e => setFiltros(p => ({ ...p, [k]: e.target.value }))}
+            style={{width: 'auto', minWidth: '150px', maxWidth: '240px', fontSize: '0.8rem', padding: '0.3rem 0.5rem',
+              borderColor: filtros[k] ? 'var(--color-primary)' : undefined}}>
+            <option value="">{ETIQUETAS_FILTRO[k]}</option>
+            {opcionesFiltro[k].map(v => <option key={v} value={v}>{v}</option>)}
+          </select>
+        ))}
+        {hayFiltros && (
+          <button onClick={() => setFiltros({})} style={{border: '1px solid var(--color-border)', background: 'transparent', borderRadius: '6px', padding: '0.3rem 0.7rem', cursor: 'pointer', fontSize: '0.8rem', color: 'var(--color-text-secondary)'}}>
+            <i className='bx bx-x'></i> Limpiar
+          </button>
+        )}
+      </div>
+
       {/* Estado de la ficha en Jireh */}
       <div style={{display: 'flex', gap: '0.4rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '0.5rem'}}>
         <span style={{fontSize: '0.75rem', fontWeight: 600, color: 'var(--color-text-secondary)', marginRight: '0.2rem'}}>ESTADO JIREH:</span>
@@ -189,11 +229,11 @@ export default function FichasAplicacion() {
       </div>
 
       {cargando ? <p style={{textAlign: 'center', padding: '2rem', color: 'var(--color-text-secondary)'}}><i className='bx bx-loader-alt bx-spin'></i> Cargando…</p>
-        : !visibles.length ? <p style={{textAlign: 'center', padding: '2rem', color: 'var(--color-text-secondary)'}}>No hay fichas para esta semana. Use «Actualizar desde Jireh» si aún no se han copiado.</p>
+        : !visibles.length ? <p style={{textAlign: 'center', padding: '2rem', color: 'var(--color-text-secondary)'}}>{fichas.length ? 'Ninguna ficha cumple los filtros.' : 'No hay fichas para esta semana. Use «Actualizar desde Jireh» si aún no se han copiado.'}</p>
         : (
         <div className="tabla-container">
           <table className="tabla" style={{fontSize: '0.8rem'}}>
-            <thead><tr><th>Orden</th><th>Lote</th><th>Hacienda</th><th>Cultivo</th><th>Actividad</th><th>Estado Jireh</th><th>Aplicación</th><th>Sincronización</th></tr></thead>
+            <thead><tr><th>Orden</th><th>Lote</th><th>Hacienda</th><th>Cultivo</th><th>Actividad</th><th>Equipo · operador</th><th>Estado Jireh</th><th>Aplicación</th><th>Sincronización</th></tr></thead>
             <tbody>
               {visibles.map(f => {
                 const env = estadoEnvio(f)
@@ -203,7 +243,11 @@ export default function FichasAplicacion() {
                     <td>{f.lote}</td>
                     <td>{f.hacienda}</td>
                     <td>{f.cultivo} · {Number(f.hectareas || 0).toLocaleString('es-EC')} ha</td>
-                    <td>{f.cod_acamp === 83 ? 'Herbicida' : 'Fitosanitaria'} ({f.productos.length})</td>
+                    <td>{actividadDe(f)} ({f.productos.length})</td>
+                    <td style={{textTransform: 'none'}}>
+                      {f.tractor ? <>{f.equipo === 'Drones' ? <i className='bx bx-paper-plane'></i> : <i className='bx bx-car'></i>} {f.tractor}</> : '-'}
+                      {operadorDe(f) && <><br /><small style={{color: 'var(--color-text-secondary)'}}>{operadorDe(f)}</small></>}
+                    </td>
                     <td><EstadoErpBadge estado={f.estado_erp} /></td>
                     <td style={{textTransform: 'none'}}>{estadoAplicacionTexto(f)}</td>
                     <td style={{color: env?.c, fontWeight: 600, textTransform: 'none', whiteSpace: 'nowrap'}}>{env ? <><i className={`bx ${env.i}`}></i> {env.t}</> : '-'}</td>
