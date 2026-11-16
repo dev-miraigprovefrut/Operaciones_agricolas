@@ -147,6 +147,36 @@ def revocar_token(id_token: int, db: Session = Depends(get_db), user: Usuario = 
     return _publico(t)
 
 
+# ------------------------------------------------- documentacion solo de pesaje
+# /docs de toda la API esta apagado en produccion. Para OT (y para probar) se publica
+# una pagina SOLO con las rutas que usa el programa de bascula, con el boton
+# "Authorize" para pegar el token de turno (Bearer ot_...). No expone otros modulos.
+_RUTAS_OT = ("/api/pesaje/fichas", "/api/pesaje/camiones", "/api/pesaje/yo")
+
+
+@router.get("/openapi.json", include_in_schema=False)
+def openapi_pesaje():
+    from fastapi.openapi.utils import get_openapi
+    rutas = [r for r in router.routes if getattr(r, "path", "").startswith(_RUTAS_OT)]
+    esquema = get_openapi(
+        title="API de Pesaje OT · Operaciones Agrícolas", version="2.3", routes=rutas,
+        description="Pulse **Authorize** y pegue el token de turno (empieza con `ot_`). "
+                    "Se genera en MirAI: menú de su nombre → *Token para OT*. Todo lo que registre queda a su nombre. "
+                    "Guía completa: API_PESAJE_OT.html.")
+    esquema.setdefault("components", {})["securitySchemes"] = {
+        "tokenOT": {"type": "http", "scheme": "bearer", "description": "Token de turno de 12 h (ot_...)"}}
+    esquema["security"] = [{"tokenOT": []}]
+    esquema["servers"] = [{"url": "/"}]
+    return esquema
+
+
+@router.get("/docs", include_in_schema=False)
+def docs_pesaje():
+    from fastapi.openapi.docs import get_swagger_ui_html
+    return get_swagger_ui_html(openapi_url="/api/pesaje/openapi.json", title="API de Pesaje OT",
+                               swagger_ui_parameters={"persistAuthorization": False, "tryItOutEnabled": True})
+
+
 @router.get("/yo")
 def quien_soy(user: Usuario = Depends(PESAJE)):
     """Para que OT compruebe el token: a nombre de quien quedan las pesadas."""
