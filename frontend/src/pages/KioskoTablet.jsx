@@ -922,13 +922,15 @@ function KioskoTablet({ tema }) {
   const [usuario, setUsuario] = useState(null)
   // quien (lista de los que ya entraron) | cedula (usuario + cedula) | codigo | trabajo
   const [pantalla, setPantalla] = useState(conocidos().length ? 'quien' : 'cedula')
-  // Version nueva del APK: se revisa al abrir y cada 6 horas (con señal)
+  // Version nueva del APK: se revisa al abrir, cada 30 min y al volver la señal
+  // (antes cada 6 h: con la tablet siempre prendida el aviso tardaba horas en salir)
   const [nueva, setNueva] = useState(null)
   useEffect(() => {
     const revisar = () => revisarActualizacion().then(setNueva)
     revisar()
-    const t = setInterval(revisar, 6 * 3600000)
-    return () => clearInterval(t)
+    const t = setInterval(revisar, 30 * 60000)
+    window.addEventListener('online', revisar)
+    return () => { clearInterval(t); window.removeEventListener('online', revisar) }
   }, [])
 
   // Lo guardado sin internet se envia en CUALQUIER pantalla: si apagaron la
